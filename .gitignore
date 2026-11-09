@@ -1,0 +1,4 @@
+test/node_modules
+test/*.png
+test/mock.log
+node_modules

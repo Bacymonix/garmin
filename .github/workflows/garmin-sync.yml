@@ -1,0 +1,36 @@
+name: Garmin sync
+
+on:
+  schedule:
+    - cron: "11,41 * * * *"   # passe toutes les 30 min ; synchronise si une demande attend ou si la dernière synchro date de plus de 3 h
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Synchroniser même sans demande"
+        type: boolean
+        default: true
+
+concurrency:
+  group: garmin-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Synchroniser Garmin → Supabase
+        env:
+          GARMIN_PERSONAL_API_KEY: ${{ secrets.GARMIN_PERSONAL_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          COCKPIT_USER_ID: ${{ secrets.COCKPIT_USER_ID }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force && '1' || '0' }}
+        run: node sync/garmin-sync.mjs

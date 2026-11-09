@@ -1,0 +1,10 @@
+begin; set local role authenticated; set local request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+insert into cockpit_state(doc) values ('{"a":1}');
+insert into cockpit_activities(id, doc) values ('x', '{}');
+insert into sync_runs(range_from, range_to) values ('2026-11-01','2026-11-09');
+update sync_runs set merged = true;
+select count(*) as my_runs from sync_runs;
+commit;
+begin; set local role authenticated; set local request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+select count(*) as other_sees_state from cockpit_state; select count(*) as other_sees_acts from cockpit_activities; select count(*) other_sees_runs from sync_runs;
+commit;
