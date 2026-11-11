@@ -34,7 +34,10 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 // ---------------- Supabase (REST, clé service_role) ----------------
 async function sb(path, { method = 'GET', body, prefer, headers = {} } = {}) {
-  const r = await fetch(SB + '/rest/v1/' + path, { method, headers: Object.assign({ apikey: SRK, Authorization: 'Bearer ' + SRK, 'Content-Type': 'application/json', Accept: 'application/json' }, prefer ? { Prefer: prefer } : {}, headers), body: body === undefined ? undefined : JSON.stringify(body) });
+  // Les nouvelles clés « sb_secret_… » ne sont pas des JWT : elles se passent uniquement par l'en-tête apikey.
+  // Les anciennes clés service_role (JWT) acceptent les deux en-têtes.
+  const authHeader = SRK.split('.').length === 3 ? { Authorization: 'Bearer ' + SRK } : {};
+  const r = await fetch(SB + '/rest/v1/' + path, { method, headers: Object.assign({ apikey: SRK, 'Content-Type': 'application/json', Accept: 'application/json' }, authHeader, prefer ? { Prefer: prefer } : {}, headers), body: body === undefined ? undefined : JSON.stringify(body) });
   const t = await r.text();
   if (!r.ok) throw new Error(`Supabase ${method} ${path.split('?')[0]} : ${r.status} ${t.slice(0, 300)}`);
   return t ? JSON.parse(t) : null;
@@ -104,6 +107,11 @@ async function syncRange(g, from, to, known) {
       const sc = num(dto, 'sleepScores.overall.value'); if (sc != null) x.sleepScore = sc;
       nSleep++;
     }
+    const st = dto.sleepStartTimestampLocal ?? dto.sleepStartTimestampGMT ?? r.sleepStartTimestampLocal;
+    if (st != null) {
+      const ms = typeof st === 'number' ? st : Date.parse(st);
+      if (isFinite(ms)) D(d).sleepStart = Math.round(((new Date(ms).getUTCHours() * 60 + new Date(ms).getUTCMinutes()) + 1440) % 1440);
+    }
     const rhr = num(r, 'restingHeartRate', 'dailySleepDTO.restingHeartRate'); if (rhr > 25 && rhr < 120) D(d).rhrSleep = rhr;
     const ah = num(r, 'avgOvernightHrv'); if (ah && !D(d).hrv) { D(d).hrv = ah; nHrv++; }
   }
@@ -116,6 +124,14 @@ async function syncRange(g, from, to, known) {
       let v = num(o, 'restingHeartRate', 'restingHeartRateValue', 'heartRate.restingValue', 'heartRate.restingHeartRate', 'heartRate.resting');
       if (v == null) for (const sub of walk(o)) { for (const [k, val] of Object.entries(sub)) if (/^resting(heart)?(rate)?(value)?$/i.test(k) && typeof val === 'number') { v = val; break; } if (v != null) break; }
       if (v > 25 && v < 120) { D(d).rhr = v; nRhr++; }
+      const steps = num(o, 'totalSteps', 'steps', 'movement.steps');
+      if (steps > 0) D(d).steps = Math.round(steps);
+      const stress = num(o, 'averageStressLevel', 'avgStressLevel', 'stress.avgStressLevel');
+      if (stress >= 0) D(d).stress = Math.round(stress);
+      const bb = num(o, 'bodyBatteryMostRecentValue', 'bodyBatteryHighestValue', 'bodyBattery.highest');
+      if (bb >= 0) D(d).bodyBattery = Math.round(bb);
+      const kcal = num(o, 'totalKilocalories', 'activeKilocalories');
+      if (kcal > 0) D(d).kcal = Math.round(kcal);
     }
   }
   for (const x of Object.values(days)) if (!x.rhr && x.rhrSleep) { x.rhr = x.rhrSleep; nRhr++; }
@@ -168,7 +184,8 @@ async function syncRange(g, from, to, known) {
     rows.push({ id: act.id, start_at: new Date(act.start).toISOString(), doc: act, samples });
   }
   if (fresh.length > MAX_DOWNLOADS) errors.push(`${fresh.length - MAX_DOWNLOADS} activité(s) sans fichier FIT (limite de ${MAX_DOWNLOADS} par synchronisation) : relance une synchronisation.`);
-  Object.assign(counts, { 'VFC nocturne': nHrv, 'Nuits': nSleep, 'FC de repos': nRhr, 'Pesées': nW, 'Activités trouvées': found.length, 'Nouvelles activités': fresh.length, 'Fichiers FIT': nFit });
+  const nSteps = Object.values(days).filter(x => x.steps).length;
+  Object.assign(counts, { 'VFC nocturne': nHrv, 'Nuits': nSleep, 'FC de repos': nRhr, 'Pesées': nW, 'Journées de pas': nSteps, 'Activités trouvées': found.length, 'Nouvelles activités': fresh.length, 'Fichiers FIT': nFit });
   return { days, rows, counts, errors, profile };
 }
 

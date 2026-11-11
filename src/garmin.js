@@ -16,7 +16,9 @@ async function garminMerge() {
     const can = prov => !prov || prov === 'garmin' || prov === 'demo';
     if (x.hrv > 0) { if (can(m.hrvProv)) { Object.assign(m, { hrv: x.hrv, hrvMethod: 'rmssd', hrvProv: 'garmin' }); n.hrv++; } else n.kept++; }
     if (x.rhr > 0) { if (can(m.rhrProv)) { Object.assign(m, { rhr: x.rhr, rhrProv: 'garmin' }); n.rhr++; } else n.kept++; }
-    if (x.sleepMin > 0) { if (can(m.sleepProv)) { Object.assign(m, { sleepMin: x.sleepMin, inBedMin: x.inBedMin, deepMin: x.deepMin, remMin: x.remMin, sleepProv: 'garmin' }); if (x.sleepScore != null) m.sleepScore = x.sleepScore; n.sleep++; } else n.kept++; }
+    if (x.sleepMin > 0) { if (can(m.sleepProv)) { Object.assign(m, { sleepMin: x.sleepMin, inBedMin: x.inBedMin, deepMin: x.deepMin, remMin: x.remMin, lightMin: x.lightMin, sleepProv: 'garmin' });
+      if (x.sleepScore != null) m.sleepScoreGarmin = x.sleepScore; if (x.sleepStart != null) m.sleepStart = x.sleepStart; n.sleep++; } else n.kept++; }
+    for (const k of ['steps', 'stress', 'bodyBattery', 'kcal']) if (x[k] != null) m[k] = x[k];
     if (x.weight > 0) { if (can(m.weightProv) || m.weight == null) { m.weight = x.weight; m.weightProv = 'garmin'; n.weight++; } else n.kept++; }
     S.garmin.daysCursor = r.updated_at;
   }
@@ -49,33 +51,66 @@ async function garminMerge() {
   if (changed) {
     S.garmin.lastMerge = { at: Date.now(), days: (days || []).length, hrv: n.hrv, sleep: n.sleep, rhr: n.rhr, kept: n.kept, acts: rep.ok, dup: rep.dup, auto: rep.auto, pend: rep.pend, profile: filled };
     save();
-    if (rep.ok || n.sleep) toast(`Garmin : ${rep.ok} activité(s), ${n.sleep} nuit(s), ${n.hrv} VFC intégrées`);
+    const bits = [rep.ok && plural(rep.ok, 'activité'), n.sleep && plural(n.sleep, 'nuit'), n.hrv && plural(n.hrv, 'mesure de VFC', 'mesures de VFC')].filter(Boolean);
+    if (bits.length) toast('Garmin : ' + bits.join(', ') + (bits.length > 1 || rep.ok > 1 || n.sleep > 1 ? ' ajoutées' : ' ajoutée'));
   }
   const active = GM.runs.some(r => r.status === 'requested' || r.status === 'running');
   clearTimeout(GM.poll);
   if (active) GM.poll = setTimeout(() => garminMerge().then(render), 15000);
 }
 
-const RUN_LABEL = { requested: 'En attente de GitHub Actions', running: 'En cours', done: 'Terminée', error: 'Échec' };
-function garminCard() {
-  const head = `<div class="sec"><span>Garmin Connect</span><small>API personnelle officielle</small></div>`;
-  if (Cloud.mode !== 'cloud') return head + `<div class="card small t2">La synchronisation Garmin passe par ton compte Supabase et GitHub Actions. Mode local : utilise l'import de fichiers FIT ci-dessous.</div>`;
-  const last = GM.runs[0], active = GM.runs.find(r => r.status === 'requested' || r.status === 'running'), lm = S.garmin?.lastMerge;
-  const fmt = t => t ? new Date(t).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }) : '–';
-  const runRow = r => `<details><summary class="small">${r.status === 'done' ? '✅' : r.status === 'error' ? '⚠️' : '⏳'} ${fmt(r.finished_at || r.started_at || r.requested_at)} · ${RUN_LABEL[r.status]}${r.source === 'auto' ? ' · auto' : ''}${r.range_from ? ` <span class="tiny t3">(${D.short(r.range_from)} → ${D.short(r.range_to)})</span>` : ''}</summary>
-    ${r.error ? `<div class="tiny danger">${esc(r.error)}</div>` : ''}${Object.entries(r.report?.counts || {}).map(([k, v]) => `<div class="kv tiny"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}${(r.report?.errors || []).map(e => `<div class="tiny warn">${esc(e)}</div>`).join('')}</details>`;
-  return head + `<div class="card">
-    ${!GM.runs.length ? `<div class="small">Aucune synchronisation pour l'instant. Une fois ta clé Garmin enregistrée dans les secrets du dépôt GitHub (voir README), lance la première ici.</div>` : ''}
-    ${active ? `<div class="small">⏳ ${RUN_LABEL[active.status]}… <span class="tiny t3">demandée ${fmt(active.requested_at)}</span></div><div class="tiny t3">${ghToken() ? 'Lancement immédiat demandé à GitHub.' : 'Prise en charge au prochain passage automatique (toutes les 30 min au plus), ou lance le workflow « Garmin sync » depuis GitHub.'}</div>`
-      : `<div class="row"><select id="gmDays" style="width:auto">${[[3, '3 derniers jours'], [7, '7 jours'], [30, '30 jours'], [90, '90 jours'], [180, '180 jours'], [365, '1 an']].map(([d, l]) => `<option value="${d}" ${d === GM.days ? 'selected' : ''}>${l}</option>`).join('')}</select><button class="btn pri" data-a="gmSync">⟳ Synchroniser</button></div>`}
-    ${GM.err ? `<div class="tiny danger">${esc(GM.err)}</div>` : ''}
-    ${lm ? `<div class="tiny t2" style="margin-top:6px">Dernière intégration ${fmt(lm.at)} : ${lm.acts} activité(s), ${lm.sleep} nuit(s), ${lm.hrv} VFC, ${lm.rhr} FC de repos${lm.kept ? `, ${lm.kept} saisie(s) manuelle(s) conservée(s)` : ''}${lm.pend ? `, ${lm.pend} à valider` : ''}${lm.profile?.length ? ', profil complété' : ''}.</div>` : ''}
-    ${GM.runs.length ? `<div style="margin-top:6px">${GM.runs.slice(0, 5).map(runRow).join('')}</div>` : ''}
-    <div class="tiny t3" style="margin-top:6px">Synchro automatique toutes les 3 h par GitHub Actions : VFC nocturne (RMSSD), sommeil et phases, FC de repos, poids, activités avec fichier FIT original. Une saisie manuelle n'est jamais écrasée.</div>
-    <details><summary class="tiny t2">Lancement immédiat (facultatif)</summary><div class="tiny t3">Sans réglage, une demande est traitée au prochain passage automatique (30 min au plus). Pour un lancement immédiat, colle un jeton GitHub « fine-grained » limité au dépôt ${esc(CFG.githubRepo || 'cockpit')} avec la seule permission « Actions : Read and write ». Il reste sur cet appareil.</div>
-      <div class="row"><input type="password" id="ghTok" placeholder="github_pat_…" value="${ghToken() ? '••••••••' : ''}"><button class="btn sm" data-a="ghTokSave">OK</button></div></details></div>`;
-}
+const RUN_LABEL = { requested: 'En attente', running: 'En cours', done: 'Terminée', error: 'Échec' };
+const RUN_COLOR = { requested: 'var(--dim)', running: 'var(--accent)', done: 'var(--good)', error: 'var(--low)' };
+const plural = (n, one, many) => `${n} ${n > 1 ? (many || one + 's') : one}`;
 
+function garminCard() {
+  const head = sec('Garmin Connect', 'API personnelle officielle');
+  if (typeof Cloud === 'undefined' || Cloud.mode !== 'cloud')
+    return head + `<div class="card"><div class="metricName">Pas disponible en mode local</div>
+      <div class="meta">La synchronisation automatique passe par ton compte et GitHub Actions. Ici, tu peux importer des fichiers FIT à la main.</div></div>`;
+
+  const runs = GM.runs || [], active = runs.find(r => r.status === 'requested' || r.status === 'running');
+  const lastDone = runs.find(r => r.status === 'done'), lastErr = runs.find(r => r.status === 'error');
+  const failed = lastErr && (!lastDone || lastErr.id > lastDone.id);
+  const lm = S.garmin?.lastMerge;
+  const when = lm ? relTime(lm.at) : lastDone?.finished_at ? relTime(Date.parse(lastDone.finished_at)) : null;
+  const nAct = S.activities.filter(a => a.source === 'garmin').length;
+  const nNights = Object.values(S.metrics).filter(m => m.sleepProv === 'garmin').length;
+  const nHrv = Object.values(S.metrics).filter(m => m.hrvProv === 'garmin').length;
+
+  let state;
+  if (active) state = { ic: 'sync', col: 'var(--accent)', title: 'Mise à jour en cours', sub: ghToken() ? 'GitHub a été prévenu, compte quelques minutes.' : 'Elle part au prochain passage automatique, dans 30 minutes au plus.' };
+  else if (failed) state = { ic: 'alert', col: 'var(--low)', title: 'La dernière mise à jour a échoué', sub: lastErr.error || 'Raison inconnue.' };
+  else if (when) state = { ic: 'check', col: 'var(--good)', title: 'À jour', sub: `Dernière mise à jour ${when}.` };
+  else state = { ic: 'alert', col: 'var(--mid)', title: 'Pas encore connecté', sub: 'Ajoute ta clé Garmin dans les secrets du dépôt GitHub, puis lance une première mise à jour.' };
+
+  return head + `<div class="card">
+    <div class="row top"><span style="color:${state.col};flex:none;display:flex">${ic(state.ic, 22)}</span>
+      <div class="grow"><div class="metricName">${esc(state.title)}</div><div class="meta">${esc(state.sub)}</div></div></div>
+
+    ${nAct + nNights ? `<div class="row" style="margin-top:14px;gap:0">
+      ${[[nAct, 'activité'], [nNights, 'nuit'], [nHrv, 'mesure de VFC', 'mesures de VFC']].map(([n, one, many]) =>
+        `<div style="flex:1"><div class="num" style="font-size:21px">${n}</div><div class="meta">${esc((many && n > 1 ? many : one + (n > 1 ? 's' : '')))}</div></div>`).join('')}
+    </div>` : ''}
+
+    ${active ? '' : `<div class="row" style="margin-top:16px;gap:10px">
+      <button class="btn pri grow" data-a="gmSync">${ic('sync', 17)} Mettre à jour</button>
+      <select id="gmDays" style="width:auto;flex:none">${[[3, '3 j'], [7, '7 j'], [30, '30 j'], [90, '90 j'], [180, '6 mois'], [365, '1 an']].map(([d, l]) => `<option value="${d}" ${d === GM.days ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    </div>`}
+    ${GM.err ? `<div class="small danger" style="margin-top:8px">${esc(GM.err)}</div>` : ''}
+
+    <details><summary>Ce que Garmin remplit, et l'historique</summary>
+      <div class="meta" style="margin:6px 0 10px">Variabilité cardiaque nocturne, sommeil et ses phases, fréquence au repos, poids, et chaque activité avec son fichier d'origine. Une valeur que tu saisis toi-même n'est jamais remplacée. La mise à jour part toute seule toutes les 3 heures.</div>
+      ${runs.length ? runs.slice(0, 6).map(r => `<div class="kv tiny"><span><span class="dot" style="background:${RUN_COLOR[r.status]}"></span>
+        ${new Date(r.finished_at || r.started_at || r.requested_at).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+        <b>${RUN_LABEL[r.status]}${r.report?.counts ? ` — ${Object.entries(r.report.counts).filter(([, v]) => v).map(([k, v]) => `${v} ${k.toLowerCase()}`).join(', ')}` : ''}${r.error ? ' — ' + esc(r.error.slice(0, 120)) : ''}</b></div>`).join('')
+        : '<div class="meta">Aucune mise à jour pour l\'instant.</div>'}
+    </details>
+    <details><summary>Lancer tout de suite plutôt qu'attendre</summary>
+      <div class="meta" style="margin:6px 0 10px">Sans réglage, une demande part au prochain passage automatique, dans 30 minutes au plus. Pour qu'elle parte immédiatement, colle un jeton GitHub « fine-grained » limité au dépôt ${esc(CFG.githubRepo || 'garmin')}, avec la seule permission « Actions : Read and write ». Il reste sur cet appareil.</div>
+      <div class="row" style="gap:8px"><input type="password" id="ghTok" placeholder="github_pat_…" value="${ghToken() ? '••••••••' : ''}"><button class="btn sm" data-a="ghTokSave">Enregistrer</button></div>
+    </details></div>`;
+}
 async function garminRequest() {
   GM.err = null;
   const to = D.realToday(), from = D.add(to, -(GM.days - 1));

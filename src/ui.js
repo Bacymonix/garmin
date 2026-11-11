@@ -24,10 +24,6 @@ const rng = (r, u, d = 0) => !r ? null : r[0] === r[1] ? `${fx(r[0], d)} ${u}` :
 const num = v => { if (v === '' || v == null) return null; const n = Number(String(v).replace(',', '.')); return isFinite(n) ? n : null; };
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-const ICON = { strength: '🏋️', mobility: '🧘', run: '🏃', trailRun: '⛰️', track: '⏱️', treadmill: '🏃', bike: '🚴', crossTraining: '🥾', walk: '🚶', rest: '🛌', race: '🏁' };
-const KCOL = { strength: 'var(--calm)', mobility: '#b39ef5', run: 'var(--accent)', trailRun: '#8cd973', track: 'var(--accent)', treadmill: 'var(--accent)', bike: '#99bfd9', crossTraining: '#99bfd9', walk: '#99bfd9', rest: 'var(--t3)', race: 'var(--warn)' };
-const SCOL = { completed: 'var(--accent)', partial: 'var(--calm)', modified: 'var(--calm)', postponed: 'var(--warn)', cancelledVoluntarily: 'var(--warn)', skippedForRecovery: 'var(--warn)', missedNoReason: 'var(--alert)', planned: 'var(--t3)', deleted: 'var(--t3)' };
-const badge = (t, c = 'var(--accent)') => `<span class="badge" style="--c:${c}">${esc(t)}</span>`;
 
 // ===================== Agrégation (équivalent de Dashboard.swift) =====================
 function dash(day) {
@@ -68,7 +64,7 @@ function dash(day) {
     if (r.rpe != null && r.durationMin) srpe[d] = (srpe[d] || 0) + r.rpe * r.durationMin;
     if (r.status === 'completed' && (r.templateId || k.split('|')[2]) === 'rest') restDays.add(d);
   }
-  const trimpStates = loadStates(trimpDay, restDays, from, day), srpeStates = loadStates(srpe, restDays, from, day);
+  const trimpByDay = trimpDay, trimpStates = loadStates(trimpDay, restDays, from, day), srpeStates = loadStates(srpe, restDays, from, day);
   const wser = { fatigue: {}, soreness: {}, stress: {}, motivation: {} };
   for (const d in S.wellness) { if (d > day) continue; for (const k in wser) if (S.wellness[d][k] != null) wser[k][d] = S.wellness[d][k]; }
   const wToday = {}; for (const k in wser) { const r = baselineAnalyze(wser[k]).pop(); if (r && r.date === day) wToday[k] = r; }
@@ -83,51 +79,11 @@ function dash(day) {
   const wts = Object.keys(weight).sort(); const lastW = wts.length ? weight[wts[wts.length - 1]] : P.massKg;
   const cat = dayCategory(Plan.enduranceMin(day));
   let bmr = null; if (lastW) { if (P.bodyFat != null) bmr = Energy.cunningham(lastW * (1 - P.bodyFat / 100)); else if (P.heightCm && P.birthYear) bmr = Energy.mifflin(lastW, P.heightCm, Number(day.slice(0, 4)) - P.birthYear, P.sex); }
-  return { day, method, hrv, rhr: rhrR, sleep, nights, hT, rT, lastNight: nights.find(n => n.date === day), comp: comp.length ? St.mean(comp) : null, compN: comp.length,
+  return { day, method, hrv, rhr: rhrR, sleep, nights, hT, rT, trimpByDay, lastNight: nights.find(n => n.date === day), comp: comp.length ? St.mean(comp) : null, compN: comp.length,
     trimpStates, srpeStates, obs, m7: sumMech(D.add(day, -6), day), m28: sumMech(D.add(day, -27), day), vol: volumeByMuscle(weekSets, lib), seqs, upcoming, linked,
     cat, lastW, bmr, tdee: Energy.adaptive(intake, weight, day) };
 }
 
-// ===================== Rendu général =====================
-function render() {
-  document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('on', b.dataset.tab === ui.tab));
-  const v = document.getElementById('view'); const y = v.scrollTop;
-  v.innerHTML = VIEWS[ui.tab]();
-  v.scrollTop = y;
-  renderModal(); renderWorkout();
-  document.getElementById('simbar').innerHTML = S.simDate ? `Date simulée : <b>${D.long(S.simDate)}</b> · <a data-a="simReset">revenir à aujourd'hui</a>` : '';
-  document.getElementById('simbar').style.display = S.simDate ? 'block' : 'none';
-}
-function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(ui.toastT); ui.toastT = setTimeout(() => t.classList.remove('on'), 3200); }
-function push(type, data = {}) { ui.stack.push(Object.assign({ type }, data)); render(); }
-function pop() { ui.stack.pop(); render(); }
-function renderModal() {
-  const m = document.getElementById('modal'), top = ui.stack[ui.stack.length - 1];
-  if (!top) { m.className = ''; m.innerHTML = ''; return; }
-  const r = MODALS[top.type](top);
-  m.className = 'on';
-  const y = m.querySelector('.mbody')?.scrollTop || 0;
-  m.innerHTML = `<div class="sheet"><div class="mhead"><button class="link" data-a="pop">${ui.stack.length > 1 ? '‹ Retour' : 'Fermer'}</button><b>${esc(r.title)}</b><span>${r.action || ''}</span></div><div class="mbody">${r.body}</div></div>`;
-  if (top.keepScroll) m.querySelector('.mbody').scrollTop = y;
-}
-
-const sec = (t, trail = '') => `<div class="sec"><span>${esc(t)}</span><small>${esc(trail)}</small></div>`;
-const tile = (title, value, unit = '', detail = '', color = '', prov = '') =>
-  `<div class="tile"><div class="tt">${esc(title)}</div><div class="tv" style="${color ? 'color:' + color : ''}">${value}<small>${esc(unit)}</small></div>${detail ? `<div class="td">${esc(detail)}</div>` : ''}${prov ? `<div class="tp">${esc(prov)}</div>` : ''}</div>`;
-const hint = t => `<div class="card hint">${t}</div>`;
-
-function sessionCard(s, status, act, compact = false) {
-  const t = s.t; let sum = [];
-  if (t.dur) sum.push(rng(t.dur, 'min'));
-  if (t.kind === 'strength') sum.push(t.blocks.reduce((n, b) => n + b.ex.length, 0) + ' exercices');
-  else { const iv = t.blocks.flatMap(b => b.iv)[0]; sum.push(iv ? ivText(iv) : t.obj); }
-  return `<div class="card scard" data-a="openSession" data-id="${esc(s.id)}">
-    <div class="sicon" style="--c:${KCOL[t.kind]}">${ICON[t.kind]}</div>
-    <div class="sbody"><div class="srow"><span class="slot">${LABELS.slot[s.slot]}</span>${s.opt ? badge('Facultative', 'var(--t2)') : ''}${s.deload ? badge('Allègement suggéré', 'var(--calm)') : ''}${s.eventId ? badge('Compétition', 'var(--warn)') : ''}</div>
-    <div class="stitle">${esc(t.title)}</div>
-    ${compact ? '' : `<div class="ssub">${esc(sum.filter(Boolean).join(' · '))}</div>${s.cond ? `<div class="scond">❓ ${esc(s.cond)}</div>` : ''}`}
-    <div class="srow">${badge(LABELS.status[status], SCOL[status])}${act ? `<small class="t2">${fmtMin(act.elapsed / 60)}${act.dist ? ' · ' + fx(act.dist / 1000, 1) + ' km' : ''}</small>` : ''}</div></div></div>`;
-}
 function ivText(i) {
   let s = (i.reps[0] === i.reps[1] ? i.reps[0] : i.reps.join('–')) + ' × ';
   const f = x => x >= 60 && x % 60 === 0 ? `${x / 60} min` : x >= 60 ? fmtDur(x) : `${x} s`;
@@ -154,206 +110,40 @@ async function recomputeTrimp() {
 function srcLabel(a, short) { return a.source === 'garmin' ? ((a.samples?.length || a.nSamples) ? 'Garmin' : 'Garmin (résumé)') : a.source === 'fitFile' ? (short ? 'FIT' : 'Fichier FIT') : a.source === 'demo' ? 'Démo' : 'Manuel'; }
 function linkedMap() { const m = {}; for (const a of S.activities) if (a.linked) m[a.linked] = a; return m; }
 
-// ===================== Onglet Aujourd'hui =====================
-function viewToday() {
-  const day = today(), d = dash(day), ph = Plan.phase(day), sessions = Plan.sessions(day), lm = linkedMap(), lk = new Set(Object.keys(lm));
-  const done = !!S.wellness[day];
-  const h = d.hT, r = d.rT, n = d.lastNight, sl = d.sleep, t = d.trimpStates[d.trimpStates.length - 1], sr = d.srpeStates[d.srpeStates.length - 1];
-  const colStat = (st, high) => st === 'within' ? 'var(--accent)' : st === 'insufficient' ? '' : (st === 'below') === high ? 'var(--warn)' : 'var(--calm)';
-  const macros = d.lastW ? { c: CARB[d.cat].map(x => x * d.lastW), p: [1.8 * d.lastW, 2.2 * d.lastW], f: 0.8 * d.lastW } : null;
-  return `
-  <div class="hdr"><div class="t2">${D.long(day)}</div><h1>Aujourd'hui</h1>
-    <div class="srow">${ph ? badge(ph.name) : badge('Hors saison', 'var(--t2)')}${badge(Plan.variant(day) === 'b' ? 'Semaine B' : 'Semaine A', 'var(--calm)')}${Plan.deload(day) ? badge('Allègement suggéré', 'var(--warn)') : ''}</div>
-    ${ph ? `<div class="t3 small">${esc(ph.obj)}</div>` : ''}</div>
-  ${S.activities.length + Object.keys(S.metrics).length === 0 ? `<div class="card demo"><b>Application vide.</b> Pour voir l'app remplie, génère 90 jours de données fictives (VFC, sommeil, sorties, séances de muscu). Tu pourras tout effacer ensuite.<button class="btn pri" data-a="demo">Générer des données de démo</button></div>` : ''}
-  <div class="hscroll">${d.upcoming.slice(0, 5).map(e => { const k = Math.max(0, D.diff(day, e.start)); return `<div class="card evmini" data-a="editEvent" data-id="${e.id}"><div class="big" style="color:${k <= 14 ? 'var(--warn)' : ''}">${k === 0 ? 'Auj.' : k === 1 ? 'Demain' : 'J−' + k}</div><div class="small b">${esc(e.name)}</div><div class="tiny"><span class="acc">${e.priority ? LABELS.priorityShort[e.priority] : 'Prio. ?'}</span> · ${LABELS.evStatus[e.status]}</div></div>`; }).join('')}</div>
-  ${sec('Récupération', LABELS.conf[d.compN >= 4 ? 'moderate' : d.compN >= 2 ? 'low' : 'insufficient'])}
-  <div class="grid2">
-    ${tile('VFC · ' + (d.method === 'sdnn' ? 'SDNN' : 'RMSSD'), h ? Math.round(h.value) : '–', 'ms', h ? (h.z != null ? `Z ${fx(h.z, 2)} · tendance : ${BASE_LABEL[h.trendStatus].toLowerCase()}` : BASE_LABEL[h.status]) : 'Pas de mesure aujourd\'hui', h ? colStat(h.trendStatus, true) : '', h ? LABELS.prov[S.metrics[day]?.hrvProv || 'manual'] : '')}
-    ${tile('FC de repos', r ? Math.round(r.value) : '–', 'bpm', r ? (r.z != null ? `Z ${fx(r.z, 2)} · ${BASE_LABEL[r.status].toLowerCase()}` : BASE_LABEL[r.status]) : 'Pas de mesure', r ? colStat(r.status, false) : '', r ? LABELS.prov[S.metrics[day]?.rhrProv || 'manual'] : '')}
-    ${tile('Sommeil', n ? fx(n.sleepMin / 60, 1) : '–', 'h', n ? [n.deepMin ? 'Profond ' + Math.round(n.deepMin / n.sleepMin * 100) + ' %' : '', n.remMin ? 'REM ' + Math.round(n.remMin / n.sleepMin * 100) + ' %' : ''].filter(Boolean).join(' · ') || 'Phases non disponibles' : 'Nuit non renseignée', '', n ? LABELS.prov[n.prov || 'manual'] : '')}
-    ${tile('Déficit 7 j', sl.nights ? fx(sl.deficit / 60, 1) : '–', 'h', `${sl.nights}/7 nuits${sl.avg ? ' · moy. ' + fx(sl.avg / 60, 1) + ' h' : ''}`, sl.deficit / 60 >= 5 ? 'var(--warn)' : '', 'Calculée')}
-  </div>
-  ${d.comp != null ? `<div class="card row"><div><div class="small t2">Composite expérimental</div><div class="tiny t3">Moyenne des écarts à ta référence (Z orientés). 0 = habituel. Ni un score sur 100, ni une mesure.</div></div><div class="big" style="color:${d.comp < -0.5 ? 'var(--warn)' : 'var(--accent)'}">${d.comp >= 0 ? '+' : ''}${fx(d.comp, 2)}</div></div>` : ''}
-  <button class="btn ${done ? '' : 'pri'} full" data-a="checkin">${done ? '✓ Modifier mon check-in' : 'Faire mon check-in du matin'}</button>
-  ${sec('Séances du jour', ph?.name || '')}
-  ${sessions.length ? '' : hint('Aucune séance prévue aujourd\'hui.')}
-  ${sessions.map(s => { const st = effectiveStatus(s, lk, day); return `${sessionCard(s, st, lm[s.id])}<div class="actions">
-    ${s.t.kind === 'strength' || s.t.kind === 'mobility' ? `<button class="btn pri" data-a="startWorkout" data-tpl="${s.t.id}" data-key="${esc(s.id)}">▶ Démarrer</button>` : ''}
-    ${s.t.kind === 'rest' ? `<button class="btn" data-a="restDone" data-key="${esc(s.id)}">✓ Repos effectué</button>` : ''}
-    ${!['completed', 'partial', 'modified'].includes(st) && s.t.kind !== 'rest' && !s.eventId ? `<button class="btn" data-a="adapt" data-key="${esc(s.id)}">⚙ Adapter</button>` : ''}</div>`; }).join('')}
-  ${sec('Observations')}
-  ${obsList(d.obs)}
-  ${sec('Charge')}
-  <div class="grid2">
-    ${tile('TRIMP · ATL / CTL', t ? `${Math.round(t.atl)}/${Math.round(t.ctl)}` : '–', '', t ? `TSB ${fx(t.tsb, 1)}${t.acwr != null ? ' · ACWR ' + fx(t.acwr, 2) : ''}${t.initW > 0.37 ? ' · historique court' : ''}` : '', '', 'Calculée')}
-    ${tile('sRPE · ATL / CTL', sr ? `${Math.round(sr.atl)}/${Math.round(sr.ctl)}` : '–', '', sr ? `TSB ${fx(sr.tsb, 1)}` : '', '', 'Calculée')}
-    ${tile('7 jours · course & trail', fx(d.m7.km, 1), 'km', `D+ ${Math.round(d.m7.up)} m · D− ${Math.round(d.m7.down)} m`)}
-    ${tile('28 jours', fx(d.m28.km, 0), 'km', `D+ ${Math.round(d.m28.up)} m · km-effort ${fx(d.m28.ke, 0)}`)}
-  </div>
-  <div class="tiny t3 pad">Charges cardiaque (TRIMP), perçue (sRPE) et mécanique présentées séparément, jamais additionnées. L'ACWR est un repère descriptif, pas un prédicteur de blessure.</div>
-  ${sec('Nutrition du jour', 'indicatif')}
-  <div class="card">${macros ? `<div class="row"><b>Journée ${CARB_LABEL[d.cat]}</b>${badge('Burke et al. 2011', 'var(--t2)')}</div>
-    <div class="kv"><span>Glucides</span><b>${Math.round(macros.c[0])}–${Math.round(macros.c[1])} g</b></div>
-    <div class="kv"><span>Protéines</span><b>${Math.round(macros.p[0])}–${Math.round(macros.p[1])} g</b></div>
-    <div class="kv"><span>Lipides (plancher indicatif)</span><b>≥ ${Math.round(macros.f)} g</b></div>
-    ${d.bmr ? `<div class="small t2">Métabolisme de repos estimé : ${Math.round(d.bmr)} kcal/j</div>` : ''}
-    ${d.tdee ? `<div class="small t2">Dépense totale observée (21 j) : ${Math.round(d.tdee.tdee)} kcal/j · confiance ${LABELS.conf[d.tdee.conf].toLowerCase()}</div>` : ''}
-    <div class="tiny t3">Catégorie déduite des séances d'endurance prévues ; la déplétion glycogénique n'est pas déduite du TRIMP.</div>`
-    : `<div class="small t2">Renseigne ta masse (Données › Profil ou check-in) pour afficher des repères.</div>`}</div>`;
-}
-function obsList(list) {
-  if (!list.length) return hint('Rien à signaler avec les données disponibles.');
-  return list.map(o => `<div class="card obs"><div class="row top"><span class="oi" style="color:${o.lvl === 'attention' ? 'var(--warn)' : 'var(--calm)'}">${o.lvl === 'attention' ? '⚠' : 'ℹ'}</span>
-    <div class="grow"><div class="small">${esc(o.msg)}</div><div class="srow">${badge(o.cat, 'var(--t2)')}<span class="tiny t3">Confiance : ${LABELS.conf[o.conf].toLowerCase()}</span></div>
-    ${Object.keys(o.ind).length ? `<details><summary class="tiny t2">Indicateurs utilisés</summary>${Object.entries(o.ind).map(([k, v]) => `<div class="kv tiny"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</details>` : ''}</div></div></div>`).join('');
-}
-
-// ===================== Onglet Programme =====================
-function viewPlan() {
-  const start = D.add(D.monday(today()), 7 * ui.week), days = D.range(start, D.add(start, 6)), mid = D.add(start, 3), ph = Plan.phase(mid) || Plan.phase(start);
-  const lm = linkedMap(), lk = new Set(Object.keys(lm)), day = today();
-  let pMin = 0, pN = 0; for (const d of days) for (const s of Plan.sessions(d)) if (isEndurance(s.t.kind)) { pN++; if (s.t.dur) pMin += (s.t.dur[0] + s.t.dur[1]) / 2; }
-  const acts = S.activities.filter(a => { const d = D.ofTime(a.start); return d >= start && d <= days[6]; });
-  const foot = acts.filter(a => ['running', 'trailRunning', 'trackRunning', 'treadmillRunning', 'walking', 'hiking'].includes(a.sport));
-  return `<div class="hdr"><div class="row"><h1>Programme</h1><div><button class="btn sm" data-a="week" data-d="-1">‹</button><button class="btn sm" data-a="week" data-d="0">Auj.</button><button class="btn sm" data-a="week" data-d="1">›</button></div></div>
-    <div class="b">Semaine du ${D.short(start)} au ${D.short(days[6])} ${days[6].slice(0, 4)}</div>
-    <div class="srow">${ph ? badge(ph.name) : badge('Hors saison', 'var(--t2)')}${badge(Plan.variant(mid) === 'b' ? 'Semaine B' : 'Semaine A', 'var(--calm)')}${Plan.deload(mid) ? badge('Allègement suggéré', 'var(--warn)') : ''}</div>
-    ${ph && ph.cons.length ? `<div class="tiny t3">${esc(ph.cons.join(' · '))}</div>` : ''}
-    <div class="srow"><button class="btn sm" data-a="phases">📊 Phases de la saison</button>${ph ? `<button class="btn sm" data-a="weekEdit" data-w="${ph.week}">✏️ Semaine type</button>` : ''}<button class="btn sm" data-a="jump">📅 Aller à une date</button></div></div>
-  <div class="grid2">${tile('Endurance prévue', fmtMin(pMin), '', `${pN} séance(s) · durées connues seulement`)}${tile('Réalisé', fmtMin(acts.reduce((s, a) => s + (a.timer || a.elapsed) / 60, 0)), '', `${fx(foot.reduce((s, a) => s + (a.dist || 0), 0) / 1000, 1)} km · D+ ${Math.round(foot.reduce((s, a) => s + (a.up || 0), 0))} m`)}</div>
-  ${days.map(d => { const ss = Plan.sessions(d); return `<div class="dayh ${d === day ? 'today' : ''}"><span>${D.long(d)}</span>${d === day ? badge('Aujourd\'hui') : ''}</div>${ss.length ? ss.map(s => sessionCard(s, effectiveStatus(s, lk, day), lm[s.id], true)).join('') : '<div class="tiny t3 pad">Rien de prévu</div>'}`; }).join('')}`;
-}
-
-// ===================== Onglet Muscu =====================
-const KEY_LIFTS = ['pullup_pronated', 'bench_press', 'row_barbell_db', 'seated_shoulder_press', 'bulgarian_split_squat', 'single_leg_rdl'];
-function e1rmSeries(exId) {
-  const out = [];
-  for (const s of [...S.strength].sort((a, b) => a.start - b.start)) {
-    const best = s.sets.filter(x => x.ex === exId && !x.warm && x.load > 0).map(x => Str.estimate(x.load, x.reps, x.rir, S.profile.formula)).filter(Boolean).sort((a, b) => b.value - a.value)[0];
-    if (best) out.push([D.num(D.ofTime(s.start)), best.value]);
-  }
-  return out;
-}
-function viewStrength() {
-  const day = today(), lib = LIB(), todays = Plan.sessions(day).filter(s => s.t.kind === 'strength' || s.t.kind === 'mobility'), lk = new Set(Object.keys(linkedMap()));
-  const vol = dash(day).vol, ms = Object.keys(vol).sort((a, b) => vol[b].direct - vol[a].direct);
-  return `<div class="hdr"><div class="row"><h1>Musculation</h1><button class="btn sm" data-a="library">📚 Exercices</button></div></div>
-  ${sec('Aujourd\'hui')}
-  ${todays.length ? todays.map(s => sessionCard(s, effectiveStatus(s, lk, day), null) + `<div class="actions"><button class="btn pri" data-a="startWorkout" data-tpl="${s.t.id}" data-key="${esc(s.id)}">▶ Démarrer</button></div>`).join('') : hint('Pas de séance de renforcement prévue aujourd\'hui.')}
-  ${sec('Volume 7 jours', 'séries principales')}
-  <div class="card">${ms.length ? ms.map(m => `<div class="kv"><span>${MUSCLES[m]}</span><b><span class="acc">${vol[m].direct}</span> <small class="t3">(${fx(vol[m].fract, 1)} fract. · ${vol[m].hard} proches de l'échec)</small></b></div>`).join('') + '<div class="tiny t3">Repères MEV / MAV / MRV non renseignés : ils sont individuels.</div>' : '<div class="small t2">Aucune série cette semaine.</div>'}</div>
-  ${sec('Progression (e1RM)', LABELS.conf.high === '' ? '' : (S.profile.formula === 'epley' ? 'Epley' : 'Brzycki'))}
-  ${KEY_LIFTS.map(id => { const pts = e1rmSeries(id); return `<div class="card"><div class="row"><b class="small">${esc(lib[id].name)}</b><b class="acc">${pts.length ? fx(pts[pts.length - 1][1], 1) + ' kg' : ''}</b></div>${pts.length >= 2 ? chart({ series: [{ pts, color: 'var(--accent)', dots: true }], h: 80 }) : `<div class="tiny t3">${pts.length ? 'Une séance enregistrée' : 'Pas encore de données'}</div>`}</div>`; }).join('')}
-  ${sec('Lancer une séance libre')}
-  ${SESSION_TEMPLATES.filter(t => t.kind === 'strength' || t.kind === 'mobility').map(t => `<div class="card row click" data-a="startWorkout" data-tpl="${t.id}"><span>${ICON[t.kind]} ${esc(t.title)}</span><span class="acc">▶</span></div>`).join('')}
-  ${sec('Historique')}
-  ${S.strength.length ? [...S.strength].sort((a, b) => b.start - a.start).slice(0, 25).map(s => `<div class="card row click" data-a="strengthDetail" data-id="${s.id}"><div><div class="small b">${esc(s.title)}</div><div class="tiny t2">${new Date(s.start).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</div></div><div class="srow"><small class="t2">${s.sets.filter(x => !x.warm).length} séries</small>${s.rpe != null ? badge('RPE ' + s.rpe, 'var(--calm)') : ''}</div></div>`).join('') : hint('Aucune séance enregistrée.')}`;
-}
-
-// ===================== Onglet Courses =====================
-function viewEvents() {
-  const day = today(), evs = [...S.events].sort((a, b) => a.start < b.start ? -1 : 1), seqs = competitionSequences(S.events);
-  const SQC = { compatible: 'var(--accent)', vigilance: 'var(--warn)', conflict: 'var(--alert)', undetermined: 'var(--t3)' };
-  return `<div class="hdr"><div class="row"><h1>Compétitions</h1><button class="btn sm" data-a="newEvent">＋ Ajouter</button></div></div>
-  ${sec('Calendrier saison 2026–2027')}
-  ${evs.map(e => { const k = D.diff(day, e.start), multi = e.end > e.start; return `<div class="card row top click" data-a="editEvent" data-id="${e.id}">
-    <div class="prio ${e.priority === 'a' ? 'a' : ''}">${e.priority ? LABELS.priorityShort[e.priority] : '?'}</div>
-    <div class="grow"><div class="b">${esc(e.name)}</div><div class="tiny t2">${D.long(e.start)}${multi ? ' → ' + D.short(e.end) + ` (${D.diff(e.start, e.end) + 1} jours)` : ''}</div>
-    <div class="srow">${badge(LABELS.evStatus[e.status], PROVISIONAL.has(e.status) ? 'var(--warn)' : 'var(--accent)')}${badge(LABELS.discipline[e.discipline], 'var(--t2)')}${e.distanceKm ? badge(fx(e.distanceKm, e.distanceKm < 30 ? 1 : 0) + ' km', 'var(--t2)') : ''}</div>
-    ${e.result ? `<div class="tiny acc">Résultat ${fmtDur(e.result)}</div>` : e.target ? `<div class="tiny acc">Objectif ${fmtDur(e.target)}</div>` : ''}</div>
-    <div class="small" style="color:${k >= 0 && k <= 21 ? 'var(--warn)' : 'var(--t2)'}">${k > 0 ? 'J−' + k : k === 0 ? 'Auj.' : 'passée'}</div></div>`; }).join('')}
-  ${sec('Enchaînements')}
-  ${seqs.length ? seqs.map(s => `<div class="card"><div class="row top"><b class="small">${esc(s.a.name)} → ${esc(s.b.name)}</b>${badge(SEQ_LABEL[s.st], SQC[s.st])}</div>${s.msg.map(m => `<div class="tiny t2">• ${esc(m)}</div>`).join('')}</div>`).join('') : hint('Aucune compétition rapprochée.')}
-  <div class="tiny t3 pad">Évalués à partir des fenêtres d'affûtage et de récupération que tu renseignes. Aucun risque de blessure n'est chiffré.</div>`;
-}
-
-// ===================== Onglet Données =====================
-function viewData() {
-  const pend = S.activities.filter(a => a.linkState === 'validate');
-  const acts = [...S.activities].sort((a, b) => b.start - a.start);
-  let size = 0; try { size = (localStorage.getItem(STORE_KEY) || '').length; } catch (e) { }
-  return `<div class="hdr"><h1>Données</h1></div>
-  ${accountCard()}
-  <div class="card list">
-    <div class="li click" data-a="profile">👤 Profil physiologique <span>›</span></div>
-    <div class="li click" data-a="measures">❤️ Mesures journalières <span>›</span></div>
-    <div class="li click" data-a="trends">📈 Tendances <span>›</span></div>
-    <div class="li click" data-a="paces">⏱️ Allures, VDOT et vitesse critique <span>›</span></div>
-  </div>
-  ${garminCard()}
-  ${sec('Autres sources')}
-  <div class="card list">
-    <label class="li click">📥 Importer des fichiers FIT ou l'archive .zip Garmin <span>›</span><input type="file" id="fitInput" accept=".fit,.zip,.FIT,.ZIP" multiple hidden></label>
-    <div class="li dim">🍎 Apple Santé <span class="tiny">iPhone uniquement</span></div>
-    <div class="li click" data-a="demo">🧪 Générer 90 jours de données de démo <span>›</span></div>
-    ${S.activities.some(a => a.source === 'demo') || S.strength.some(x => x.demo) ? '<div class="li click danger" data-a="clearDemo">🧹 Effacer les données de démo <span>›</span></div>' : ''}
-  </div>
-  <div class="tiny t3 pad">Sur Garmin Connect (site web), ouvre une activité › ⚙ › « Exporter l'original » : tu obtiens un .zip contenant le .fit. Il peut être importé tel quel ici.</div>
-  ${pend.length ? sec('À valider') + pend.map(a => actRow(a)).join('') : ''}
-  ${sec(`Activités (${acts.length})`)}
-  ${acts.length ? acts.slice(0, 60).map(a => actRow(a)).join('') : hint('Aucune activité importée.')}
-  ${sec('Sauvegarde')}
-  <div class="card list">
-    <div class="li click" data-a="exportJSON">💾 Exporter une sauvegarde JSON <span>›</span></div>
-    <label class="li click">♻️ Restaurer une sauvegarde <span>›</span><input type="file" id="jsonInput" accept=".json" hidden></label>
-    <div class="li click danger" data-a="reset">🗑 Tout effacer <span>›</span></div>
-  </div>
-  <div class="tiny t3 pad">${Cloud.mode === 'cloud' ? 'Données enregistrées dans ton compte (Supabase), avec une copie sur cet appareil pour fonctionner hors ligne.' : `Mode local : données stockées dans ce navigateur (${fx(size / 1024, 0)} Ko).`} La sauvegarde JSON permet aussi de reprendre les données de l'aperçu Windows.</div>
-  ${sec('Outils')}
-  <div class="card list">
-    <div class="li click" data-a="jump">📅 Simuler une autre date <span>›</span></div>
-    <div class="li click" data-a="refs">📚 Références scientifiques <span>›</span></div>
-    <div class="li dim">Moteur <span class="tiny">cockpit-core-1.0.0 (portage web)</span></div>
-  </div>`;
-}
-function actRow(a) {
-  const st = { auto: 'Associée automatiquement', validated: 'Association validée', validate: 'À valider', ignored: 'Ignorée' }[a.linkState] || 'Non associée';
-  return `<div class="card row click" data-a="activity" data-id="${esc(a.id)}"><div><div class="small">${LABELS.sport[a.sport]} · ${new Date(a.start).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}</div>
-    <div class="tiny t2">${[fmtMin(a.elapsed / 60), a.dist ? fx(a.dist / 1000, 2) + ' km' : '', a.up ? 'D+ ' + Math.round(a.up) + ' m' : '', a.trimp != null ? 'TRIMP ' + Math.round(a.trimp) : '', srcLabel(a, true)].filter(Boolean).join(' · ')}</div></div>${badge(st, a.linkState === 'validate' ? 'var(--warn)' : 'var(--t2)')}</div>`;
-}
-
-const VIEWS = { today: viewToday, plan: viewPlan, strength: viewStrength, events: viewEvents, data: viewData };
-
-// ===================== Graphiques SVG =====================
-function chart({ series = [], bars = null, band = null, rule = null, h = 160, yMin = null, yMax = null }) {
-  const W = 400, H = h, pl = 34, pr = 6, pt = 6, pb = 16;
-  const all = [...series.flatMap(s => s.pts), ...(bars ? bars.pts : []), ...(band ? band.flatMap(b => [[b[0], b[1]], [b[0], b[2]]]) : [])];
-  if (!all.length) return '';
-  const xs = all.map(p => p[0]); let x0 = Math.min(...xs), x1 = Math.max(...xs); if (x0 === x1) { x0 -= 1; x1 += 1; }
-  const ys = all.map(p => p[1]).concat(rule != null ? [rule] : []); let y0 = yMin ?? Math.min(...ys), y1 = yMax ?? Math.max(...ys);
-  if (bars && yMin == null) y0 = Math.min(0, y0); if (y0 === y1) { y0 -= 1; y1 += 1; } const padY = (y1 - y0) * 0.08; if (yMin == null && !bars) y0 -= padY; y1 += padY;
-  const X = x => pl + (x - x0) / (x1 - x0) * (W - pl - pr), Y = y => pt + (1 - (y - y0) / (y1 - y0)) * (H - pt - pb);
-  let g = '';
-  for (let k = 0; k <= 3; k++) { const v = y0 + (y1 - y0) * k / 3; g += `<line x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}" class="grid"/><text x="${pl - 4}" y="${Y(v) + 3}" class="ax" text-anchor="end">${Math.abs(v) >= 100 ? Math.round(v) : fx(v, Math.abs(v) < 10 ? 1 : 0)}</text>`; }
-  g += `<text x="${pl}" y="${H - 3}" class="ax">${D.short(D.iso(x0))}</text><text x="${W - pr}" y="${H - 3}" class="ax" text-anchor="end">${D.short(D.iso(x1))}</text>`;
-  if (band) g += `<path d="M${band.map(b => `${X(b[0])},${Y(b[2])}`).join('L')}L${[...band].reverse().map(b => `${X(b[0])},${Y(b[1])}`).join('L')}Z" fill="var(--accentSoft)"/>`;
-  if (bars) { const bw = Math.max(1.5, (W - pl - pr) / Math.max(1, x1 - x0 + 1) * 0.7); g += bars.pts.map(p => `<rect x="${X(p[0]) - bw / 2}" y="${Y(Math.max(0, p[1]))}" width="${bw}" height="${Math.abs(Y(0) - Y(p[1]))}" fill="${p[2] || bars.color}" rx="1"/>`).join(''); }
-  if (rule != null) g += `<line x1="${pl}" x2="${W - pr}" y1="${Y(rule)}" y2="${Y(rule)}" stroke="var(--warn)" stroke-dasharray="4 4"/>`;
-  for (const s of series) {
-    if (s.line !== false && s.pts.length > 1) g += `<polyline points="${s.pts.map(p => `${X(p[0])},${Y(p[1])}`).join(' ')}" fill="none" stroke="${s.color}" stroke-width="2"/>`;
-    if (s.dots) g += s.pts.map(p => `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="${s.r || 2.5}" fill="${s.color}"/>`).join('');
-  }
-  return `<svg viewBox="0 0 ${W} ${H}" class="chart">${g}</svg>`;
-}
 
 // ===================== Fenêtres (modales) =====================
 const MODALS = {
   checkin() {
     const day = today(), w = S.wellness[day] || {}, m = S.metrics[day] || {}, prev = S.metrics[D.add(day, -1)] || {};
-    const scale = (k, t, lo, hi) => `<div class="field"><div class="row"><b class="small">${t}</b><b class="acc" id="v-${k}">${w[k] ? w[k] + '/7' : '–'}</b></div><div class="scale" data-k="${k}">${[1, 2, 3, 4, 5, 6, 7].map(i => `<button class="${w[k] === i ? 'on' : ''}" data-a="scale" data-k="${k}" data-v="${i}">${i}</button>`).join('')}</div><div class="row tiny t3"><span>${lo}</span><span>${hi}</span></div></div>`;
-    return { title: D.long(day), action: '<button class="link b" data-a="saveCheckin">Enregistrer</button>', body: `
-      <div class="card">${scale('fatigue', 'Fatigue', 'Très faible', 'Très élevée')}${scale('soreness', 'Courbatures', 'Aucune', 'Très fortes')}${scale('stress', 'Stress', 'Très faible', 'Très élevé')}${scale('motivation', 'Motivation', 'Très faible', 'Excellente')}${scale('sleepQuality', 'Qualité du sommeil perçue', 'Très mauvaise', 'Excellente')}
-      <div class="tiny t3">Échelle 1–7 inspirée de Hooper & Mackinnon (1995). Comparée à ta propre référence après 14 jours.</div></div>
-      <div class="card"><div class="field"><label>Douleur (0 = aucune, 1–7)</label><input type="number" min="0" max="7" name="pain" value="${w.pain ?? 0}"></div><div class="field"><label>Localisation</label><input name="painLoc" value="${esc(w.painLoc || '')}" placeholder="ex. tendon d'Achille gauche"></div></div>
+    const garmin = k => m[k + 'Prov'] === 'garmin';
+    const scale = (k, t, lo, hi) => `<div class="field"><div class="row"><span>${t}</span><b class="acc" id="v-${k}">${w[k] ? w[k] : '–'}</b></div>
+      <div class="scale" data-k="${k}">${[1, 2, 3, 4, 5, 6, 7].map(i => `<button class="${w[k] === i ? 'on' : ''}" data-a="scale" data-k="${k}" data-v="${i}">${i}</button>`).join('')}</div>
+      <div class="ladderEnds"><span>${lo}</span><span>${hi}</span></div></div>`;
+    return { title: 'Check-in', action: '<button class="link" data-a="saveCheckin">Enregistrer</button>', body: `
+      <div class="meta">${D.long(day)}</div>
+      <h2 style="margin:2px 0 12px">Comment tu te sens</h2>
       <div class="card">
-        <div class="field"><label>VFC nocturne (ms) — valeur RMSSD Garmin</label><input inputmode="decimal" name="hrv" value="${m.hrvMethod !== 'sdnn' && m.hrv ? Math.round(m.hrv) : ''}"></div>
-        <div class="field"><label>FC de repos (bpm)</label><input inputmode="decimal" name="rhr" value="${m.rhr ? Math.round(m.rhr) : ''}"></div>
-        <div class="field"><label>Sommeil (h)</label><input inputmode="decimal" name="sleep" value="${m.sleepMin ? fx(m.sleepMin / 60, 1) : ''}"></div>
-        <div class="field"><label>Masse (kg)</label><input inputmode="decimal" name="weight" value="${m.weight ? fx(m.weight, 1) : ''}"></div>
-        <div class="field"><label>Apports de la veille (kcal, journée complète)</label><input inputmode="decimal" name="intake" value="${prev.intake || ''}"></div>
-        <div class="tiny t3">Laisse vide ce que tu ne connais pas. Une saisie manuelle n'est jamais écrasée par une synchronisation.</div></div>
-      <div class="card"><div class="field"><label>Note</label><textarea name="note">${esc(w.note || '')}</textarea></div></div>` };
+        ${scale('fatigue', 'Fatigue', 'aucune', 'épuisé')}
+        ${scale('soreness', 'Courbatures', 'aucune', 'très fortes')}
+        ${scale('stress', 'Stress', 'serein', 'très tendu')}
+        ${scale('motivation', 'Motivation', 'très basse', 'excellente')}
+        ${scale('sleepQuality', 'Qualité du sommeil', 'très mauvaise', 'excellente')}
+      </div>
+      <div class="note tight">Échelle de Hooper &amp; Mackinnon (1995). Après deux semaines, chaque réponse est comparée à ta propre moyenne, pas à une norme.</div>
+      <div class="card">
+        <div class="field"><label>Douleur — 0 si rien ne te fait mal</label><input type="number" min="0" max="7" name="pain" value="${w.pain ?? 0}"></div>
+        <div class="field"><label>Où</label><input name="painLoc" value="${esc(w.painLoc || '')}" placeholder="tendon d'Achille gauche…"></div>
+      </div>
+      <h2 style="margin:22px 0 4px">Mesures du matin</h2>
+      <div class="note tight">Laisse vide ce que tu ne sais pas. ${typeof Cloud !== 'undefined' && Cloud.mode === 'cloud' ? 'Ce que tu saisis ici n\'est jamais écrasé par Garmin.' : ''}</div>
+      <div class="card">
+        <div class="field"><label>Variabilité cardiaque (ms)${garmin('hrv') ? ' — Garmin a déjà rempli' : ''}</label><input inputmode="decimal" name="hrv" value="${m.hrvMethod !== 'sdnn' && m.hrv ? Math.round(m.hrv) : ''}"></div>
+        <div class="field"><label>Fréquence cardiaque au repos (bpm)${garmin('rhr') ? ' — Garmin a déjà rempli' : ''}</label><input inputmode="decimal" name="rhr" value="${m.rhr ? Math.round(m.rhr) : ''}"></div>
+        <div class="field"><label>Sommeil (heures)${garmin('sleep') ? ' — Garmin a déjà rempli' : ''}</label><input inputmode="decimal" name="sleep" value="${m.sleepMin ? fx(m.sleepMin / 60, 1) : ''}"></div>
+        <div class="field"><label>Poids (kg)</label><input inputmode="decimal" name="weight" value="${m.weight ? fx(m.weight, 1) : ''}"></div>
+        <div class="field"><label>Calories mangées hier</label><input inputmode="decimal" name="intake" value="${prev.intake || ''}"></div>
+      </div>
+      <div class="card"><div class="field"><label>Quelque chose à noter</label><textarea name="note">${esc(w.note || '')}</textarea></div></div>` };
   },
   session(m) {
     const s = findSession(m.id); if (!s) return { title: 'Séance', body: hint('Séance introuvable.') };
@@ -450,14 +240,35 @@ const MODALS = {
       Object.keys(CATS).map(c => { const it = lib.filter(e => e.cat === c && (!q || e.name.toLowerCase().includes(q))).sort((a, b) => a.name.localeCompare(b.name)); return it.length ? sec(CATS[c]) + `<div class="card list">${it.map(e => `<div class="li click" data-a="exercise" data-id="${e.id}"><div><div class="small">${esc(e.name)} ${e.custom ? badge('Perso', 'var(--calm)') : ''}</div><div class="tiny t2">${e.p.map(x => MUSCLES[x]).join(', ')}</div></div><span>›</span></div>`).join('')}</div>` : ''; }).join('') };
   },
   exercise(m) {
-    const lib = LIB(), e = lib[m.id], dots = n => '●'.repeat(n) + '○'.repeat(Math.max(0, 3 - n)), hist = e1rmSeries(e.id);
-    const kv = (k, v) => v ? `<div class="kv"><span>${k}</span><b>${esc(v)}</b></div>` : '';
-    return { title: e.name, body: `<div class="card"><p class="small">${esc(e.sum)}</p>${kv('Catégorie', CATS[e.cat])}${kv('Muscles principaux', e.p.map(x => MUSCLES[x]).join(', '))}${kv('Muscles secondaires', e.s.map(x => MUSCLES[x]).join(', '))}${kv('Articulations', e.joints.join(', '))}${kv('Matériel', e.eq.join(', '))}${kv('Difficulté', dots(e.diff))}${kv('Niveau technique', dots(e.tech))}${kv('Amplitude', e.rom)}${kv('Tempo', e.tempo)}</div>
-      ${sec('Consignes')}<div class="card">${e.cues.map(c => `<div class="small">✓ ${esc(c)}</div>`).join('')}</div>
-      ${e.err.length ? sec('Erreurs fréquentes') + `<div class="card">${e.err.map(c => `<div class="small warn">✗ ${esc(c)}</div>`).join('')}</div>` : ''}
-      ${e.vars.length || e.rep.length ? sec('Variantes et remplacements') + `<div class="card">${e.vars.map(v => `<div class="small">${esc(v)}</div>`).join('')}${e.rep.filter(r => lib[r]).map(r => `<div class="li click" data-a="exercise" data-id="${r}">⇄ ${esc(lib[r].name)}</div>`).join('')}</div>` : ''}
-      ${hist.length ? sec('e1RM') + `<div class="card">${hist.length > 1 ? chart({ series: [{ pts: hist, color: 'var(--accent)', dots: true }], h: 100 }) : ''}<div class="small">Dernier : <b class="acc">${fx(hist[hist.length - 1][1], 1)} kg</b></div></div>` : ''}
-      ${sec('Source')}<div class="card tiny t2">${esc(e.src)}</div>` };
+    const lib = LIB(), e = lib[m.id], hist = e1rmSeries(e.id), mvv = moveFor(e.id, e.cat);
+    const dots = n => `<span style="letter-spacing:2px">${'●'.repeat(n)}<span class="faint">${'○'.repeat(Math.max(0, 3 - n))}</span></span>`;
+    const kv = (k, v) => v ? `<div class="kv"><span>${k}</span><b>${v}</b></div>` : '';
+    const sets = S.strength.flatMap(x => x.sets.filter(y => y.ex === e.id && !y.warm));
+    const last = [...S.strength].filter(x => x.sets.some(y => y.ex === e.id)).sort((a, b) => b.start - a.start)[0];
+    return { title: e.name, body: `
+      ${mvv ? `<div class="mvBox" style="margin:10px 0">${mvv.svg}</div><div class="meta" style="text-align:center;margin-bottom:6px">${esc(mvv.title)} — amplitude visée, à adapter à ta morphologie</div>` : ''}
+      <p class="lede">${esc(e.sum)}</p>
+      <div class="card">
+        ${kv('Muscles moteurs', esc(e.p.map(x => MUSCLES[x]).join(', ')))}
+        ${kv('Aussi sollicités', esc(e.s.map(x => MUSCLES[x]).join(', ')))}
+        ${kv('Matériel', esc(e.eq.join(', ')))}
+        ${kv('Difficulté', dots(e.diff))}
+        ${kv('Exigence technique', dots(e.tech))}
+        ${kv('Amplitude', esc(e.rom))}
+        ${kv('Tempo conseillé', esc(e.tempo))}
+      </div>
+      ${sec('Comment l\'exécuter')}
+      <div class="card">${e.cues.map((c, i2) => `<div class="row top" style="padding:6px 0"><b class="num faint" style="width:18px;flex:none">${i2 + 1}</b><span class="grow small">${esc(c)}</span></div>`).join('')}</div>
+      ${e.err.length ? sec('Ce qui rate le plus souvent') + `<div class="card">${e.err.map(c => `<div class="row top" style="padding:6px 0"><span style="color:var(--mid);flex:none;display:flex">${ic('alert', 16)}</span><span class="grow small">${esc(c)}</span></div>`).join('')}</div>` : ''}
+      ${e.vars.length || e.rep.filter(r => lib[r]).length ? sec('Variantes et remplacements') + `<div class="card">
+        ${e.vars.map(v => `<div class="small" style="padding:4px 0">${esc(v)}</div>`).join('')}</div>
+        ${e.rep.filter(r => lib[r]).length ? `<div class="list">${e.rep.filter(r => lib[r]).map(r => `<div class="li" data-a="exercise" data-id="${r}"><span class="ic">${ic('tune')}</span><span class="grow">${esc(lib[r].name)}</span><span class="chev">${ic('chev', 18)}</span></div>`).join('')}</div>` : ''}` : ''}
+      ${hist.length ? sec('Ta progression') + `<div class="card">
+        ${hist.length > 1 ? chart({ series: [{ pts: hist, color: 'var(--deep)', dots: true, fill: true }], h: 110 }) : ''}
+        <div class="kv"><span>Force maximale estimée</span><b>${fx(hist[hist.length - 1][1], 1)} kg</b></div>
+        ${last ? `<div class="kv"><span>Dernière séance</span><b>${new Date(last.start).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} — ${last.sets.filter(y => y.ex === e.id && !y.warm).map(y => `${fx(y.load, y.load % 1 ? 1 : 0)}×${y.reps}`).join('  ')}</b></div>` : ''}
+        <div class="kv"><span>Séries enregistrées</span><b>${sets.length}</b></div></div>` : ''}
+      <div class="note">${esc(e.src)}</div>` };
   },
   newExercise() {
     return { title: 'Nouvel exercice', action: '<button class="link b" data-a="saveExercise">Créer</button>', body: `<div class="card"><div class="field"><label>Nom</label><input name="name"></div>
@@ -501,28 +312,97 @@ const MODALS = {
     const ds = Object.keys(S.metrics).sort().reverse();
     return { title: 'Mesures', body: ds.length ? ds.slice(0, 120).map(d => { const m = S.metrics[d]; const parts = [m.hrv ? `${m.hrvMethod === 'sdnn' ? 'SDNN' : 'RMSSD'} ${Math.round(m.hrv)} ms (${LABELS.prov[m.hrvProv || 'manual'].toLowerCase()})` : '', m.rhr ? `FC repos ${Math.round(m.rhr)}` : '', m.sleepMin ? `Sommeil ${fx(m.sleepMin / 60, 1)} h` : '', m.weight ? fx(m.weight, 1) + ' kg' : '', m.intake ? `Apports ${m.intake} kcal` : ''].filter(Boolean); return `<div class="card"><div class="row"><b class="small">${D.long(d)}</b><a class="tiny danger" data-a="delMetric" data-d="${d}">Supprimer</a></div><div class="tiny t2">${parts.join(' · ') || '—'}</div></div>`; }).join('') : hint('Aucune mesure. Fais un check-in ou génère la démo.') };
   },
-  trends() {
-    const day = today(), d = dash(day), lim = D.add(day, -90);
-    const lc = (states, label) => { const s = states.filter(x => x.date >= lim); if (!s.some(x => x.load > 0)) return `<div class="card small t2">Pas encore de charge ${label}.</div>`; return `<div class="card">${chart({ bars: { pts: s.map(x => [D.num(x.date), x.load]), color: 'var(--t4)' }, series: [{ pts: s.map(x => [D.num(x.date), x.ctl]), color: 'var(--accent)' }, { pts: s.map(x => [D.num(x.date), x.atl]), color: 'var(--warn)' }], h: 170 })}<div class="legend"><span style="color:var(--accent)">● CTL (42 j)</span><span style="color:var(--warn)">● ATL (7 j)</span><span class="t3">▮ charge du jour</span></div></div>`; };
+  trends(mo) {
+    const day = today(), d = dash(day), lim = D.add(day, -90), need = S.profile.sleepNeed || 8;
     const hv = d.hrv.filter(x => x.date >= D.add(day, -60)), rh = d.rhr.filter(x => x.date >= D.add(day, -60));
-    const sl = D.range(D.add(day, -27), day).map(x => S.metrics[x]?.sleepMin ? [D.num(x), S.metrics[x].sleepMin / 60, S.metrics[x].sleepMin / 60 >= (S.profile.sleepNeed || 8) ? 'var(--accent)' : 'var(--calm)'] : null).filter(Boolean);
-    return { title: 'Tendances', body: sec('Charge cardiaque (TRIMP)', '90 jours') + lc(d.trimpStates, 'cardiaque') + sec('Charge perçue (sRPE)', '90 jours') + lc(d.srpeStates, 'perçue') +
-      sec(`VFC · ln(${d.method === 'sdnn' ? 'SDNN' : 'RMSSD'})`, '60 jours') + (hv.length ? `<div class="card">${chart({ band: hv.filter(x => x.mean != null).map(x => [D.num(x.date), x.mean - 0.5 * x.sd, x.mean + 0.5 * x.sd]), series: [{ pts: hv.map(x => [D.num(x.date), x.ln]), color: 'var(--t2)', line: false, dots: true, r: 2 }, { pts: hv.map(x => [D.num(x.date), x.trend]), color: 'var(--accent)' }], h: 170 })}<div class="tiny t3">Points : valeur du jour. Ligne : tendance (EWMA 7 j). Bande : référence 60 j ± 0,5 écart-type.</div></div>` : '<div class="card small t2">Aucune VFC sur la période.</div>') +
-      sec('FC de repos', '60 jours') + (rh.length ? `<div class="card">${chart({ series: [{ pts: rh.map(x => [D.num(x.date), x.value]), color: 'var(--calm)' }], h: 130 })}</div>` : '<div class="card small t2">Aucune FC de repos.</div>') +
-      sec('Sommeil', '28 jours') + (sl.length ? `<div class="card">${chart({ bars: { pts: sl, color: 'var(--calm)' }, rule: S.profile.sleepNeed || 8, h: 150 })}<div class="tiny t3">Pointillés : ton besoin déclaré (${fx(S.profile.sleepNeed || 8, 1)} h).</div></div>` : '<div class="card small t2">Aucune nuit renseignée.</div>') };
+    const sl = D.range(D.add(day, -27), day).map(x => S.metrics[x]?.sleepMin
+      ? [D.num(x), S.metrics[x].sleepMin / 60, S.metrics[x].sleepMin / 60 >= need ? 'var(--good)' : 'var(--accent)'] : null).filter(Boolean);
+    const load = (states, title, note) => {
+      const s = states.filter(x => x.date >= lim);
+      if (!s.some(x => x.load > 0)) return sec(title) + hint(note);
+      return sec(title, '90 jours') + `<div class="card">${chart({ h: 180, bars: { pts: s.map(x => [D.num(x.date), x.load]), color: 'var(--line)' },
+        series: [{ pts: s.map(x => [D.num(x.date), x.ctl]), color: 'var(--accent)', fill: true }, { pts: s.map(x => [D.num(x.date), x.atl]), color: 'var(--mid)', w: 1.6 }] })}
+        ${legend([['var(--accent)', 'fond (42 jours)'], ['var(--mid)', 'fatigue récente (7 jours)'], ['var(--line)', 'charge du jour']])}</div>`;
+    };
+    const blocks = {
+      sleep: sec('Sommeil', '28 nuits') + (sl.length ? `<div class="card">${chart({ h: 160, bars: { pts: sl, color: 'var(--accent)' }, rule: need, ruleLabel: 'ton besoin' })}
+        <div class="kv" style="margin-top:8px"><span>Moyenne sur 7 jours</span><b>${d.sleep.avg ? fx(d.sleep.avg / 60, 1) + ' h' : '–'}</b></div>
+        <div class="kv"><span>Dette accumulée sur 7 jours</span><b>${d.sleep.nights ? fx(d.sleep.deficit / 60, 1) + ' h' : '–'}</b></div>
+        ${d.lastNight && d.lastNight.deepMin ? `<div class="kv"><span>Dernière nuit — profond / paradoxal</span><b>${Math.round(d.lastNight.deepMin)} / ${Math.round(d.lastNight.remMin || 0)} min</b></div>` : ''}</div>`
+        : hint('Aucune nuit mesurée. Garmin les remplit automatiquement, sinon saisis-les dans le check-in.')),
+      hrv: sec('Variabilité cardiaque', '60 jours') + (hv.length ? `<div class="card">${hrvChart(hv, 180)}
+        ${legend([['var(--accent)', 'tendance 7 jours'], ['var(--faint)', 'mesure du jour']])}
+        <div class="note tight">${d.method === 'sdnn' ? 'SDNN' : 'RMSSD'} en millisecondes. La bande est ta zone habituelle sur 60 jours (± un demi écart-type). Une seule journée basse ne signifie rien.</div></div>`
+        : hint('Aucune mesure de variabilité pour l\'instant.')),
+      rhr: sec('Fréquence cardiaque au repos', '60 jours') + (rh.length ? `<div class="card">${chart({ h: 150, series: [{ pts: rh.map(x => [D.num(x.date), x.value]), color: 'var(--deep)', fill: true }] })}
+        <div class="note tight">Une hausse qui dure plusieurs jours accompagne souvent une fatigue ou une infection qui commence.</div></div>`
+        : hint('Aucune fréquence au repos enregistrée.'))
+    };
+    const order = mo.focus ? [mo.focus, ...Object.keys(blocks).filter(k => k !== mo.focus)] : Object.keys(blocks);
+    return { title: 'Courbes', body: order.map(k => blocks[k]).join('') + load(d.trimpStates, 'Charge cardiaque', 'Pas encore de charge : il faut des activités avec fréquence cardiaque.')
+      + load(d.srpeStates, 'Charge perçue', 'Pas encore de charge perçue : note le RPE de tes séances.')
+      + `<div class="note">Les deux charges mesurent des choses différentes et ne s'additionnent pas.</div>` };
   },
   activity(m) {
     const a = S.activities.find(x => x.id === m.id); if (!a) return { title: '', body: '' };
     const day = D.ofTime(a.start), ss = Plan.sessions(day), linked = a.linked ? ss.find(s => s.id === a.linked) : null;
-    const smp = sm(a), dc = ['running', 'trailRunning', 'trackRunning', 'treadmillRunning'].includes(a.sport) && smp.length ? decoupling(smp) : null;
+    const smp = sm(a), foot = FOOT.has(a.sport);
+    const dc = foot && smp.length ? decoupling(smp) : null;
+    const an2 = smp.length ? anaOf(a) : { splits: [], best: {}, zones: null, three: null, gap: null, dp: null };
     const kv = (k, v) => `<div class="kv"><span>${k}</span><b>${v}</b></div>`;
-    const prof = smp.some(s => s[4] != null) ? chart({ series: [{ pts: smp.filter(s => s[4] != null).map(s => [s[0] / 86400, s[4]]), color: '#8cd973' }], h: 90 }).replace(/<text[^>]*>[^<]*<\/text>/g, '') : '';
-    const hrc = smp.some(s => s[1]) ? chart({ series: [{ pts: smp.filter(s => s[1]).map(s => [s[0] / 86400, s[1]]), color: 'var(--alert)' }], h: 90 }).replace(/<text[^>]*>[^<]*<\/text>/g, '') : '';
-    return { title: LABELS.sport[a.sport], body: `<div class="card">${kv('Début', new Date(a.start).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' }))}${kv('Durée écoulée', fmtMin(a.elapsed / 60))}${a.timer ? kv('Durée chronométrée', fmtMin(a.timer / 60)) : ''}${a.dist ? kv('Distance', fx(a.dist / 1000, 2) + ' km') : ''}${a.dist && a.timer ? kv('Allure moyenne', pace(a.timer / (a.dist / 1000)) + ' /km') : ''}${a.up != null ? kv('D+ / D−', `${Math.round(a.up)} / ${Math.round(a.down || 0)} m`) : ''}${a.avgHR ? kv('FC moyenne / max', `${Math.round(a.avgHR)} / ${Math.round(a.maxHR || 0)} bpm`) : ''}${a.trimp != null ? kv('TRIMP', fx(a.trimp, 1) + (a.trimpAvg ? ' (estimé, FC moyenne)' : '')) : kv('TRIMP', '<span class="t3">renseigne FC repos et FC max dans le profil</span>')}${kv('Source', srcLabel(a))}</div>
-      ${hrc ? sec('Fréquence cardiaque') + `<div class="card">${hrc}</div>` : ''}${prof ? sec('Altitude') + `<div class="card">${prof}</div>` : ''}
-      ${sec('Champs fournis')}<div class="card"><div class="small">${(a.fields || []).join(' · ') || '—'}</div><div class="tiny t3">Un champ absent n'est jamais estimé à la place de l'appareil.</div>${(a.warnings || []).map(w => `<div class="tiny warn">${esc(w)}</div>`).join('')}</div>
-      ${dc ? sec('Efficacité aérobie') + `<div class="card">${dc.pct != null ? kv('Découplage Pa:Hr', fx(dc.pct, 1) + ' %') : ''}${dc.e1 ? kv('EF 1re moitié', fx(dc.e1, 3)) : ''}${dc.reasons.map(r => `<div class="tiny warn">${esc(r)}</div>`).join('')}<div class="tiny t3">EF et Pa:Hr (Friel) interprétables seulement sur une séance régulière.</div></div>` : ''}
-      ${sec('Séance prévue')}<div class="card">${linked ? comparison(linked, a) + `<button class="btn full danger" data-a="unlink" data-id="${esc(a.id)}">Dissocier</button>` : (ss.length ? ss.map(s => `<div class="li click" data-a="link" data-id="${esc(a.id)}" data-key="${esc(s.id)}">${LABELS.slot[s.slot]} · ${esc(s.t.title)} ${(a.candidates || []).includes(s.id) ? badge('Candidate', 'var(--warn)') : ''}</div>`).join('') : '<div class="small t2">Aucune séance prévue ce jour-là.</div>') + `<button class="btn full" data-a="ignoreAct" data-id="${esc(a.id)}">Ne pas associer</button>`}</div>
+    const hrc = smp.some(x => x[1]) ? chart({ h: 110, series: [{ pts: smp.filter(x => x[1]).map(x => [x[0] / 86400, x[1]]), color: 'var(--low)', fill: true }] }).replace(/<text[^>]*>[^<]*<\/text>/g, '') : '';
+    const prof = smp.some(x => x[4] != null) ? chart({ h: 90, series: [{ pts: smp.filter(x => x[4] != null).map(x => [x[0] / 86400, x[4]]), color: 'var(--good)', fill: true }] }).replace(/<text[^>]*>[^<]*<\/text>/g, '') : '';
+    const zt = an2.zones ? an2.zones.reduce((x, y) => x + y, 0) : 0;
+    const sp = an2.splits;
+    const paces = sp.map(x => x.partial ? x.s / x.partial : x.s);
+    const pMin = paces.length ? Math.min(...paces) : 0, pMax = paces.length ? Math.max(...paces) : 1;
+    const barW = i2 => pMax > pMin ? 38 + 62 * (pMax - paces[i2]) / (pMax - pMin) : 100;
+    const bests = Object.keys(an2.best).map(Number).sort((x, y) => x - y);
+    return { title: LABELS.sport[a.sport], body: `
+      <div class="meta">${new Date(a.start).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' })}</div>
+      <h2 style="margin:2px 0 12px">${esc(a.name || LABELS.sport[a.sport])}</h2>
+      <div class="trio">
+        ${tile('Durée', fmtMin((a.timer || a.elapsed) / 60))}
+        ${a.dist ? tile('Distance', fx(a.dist / 1000, 2), 'km') : tile('Charge', a.trimp != null ? Math.round(a.trimp) : '–', 'TRIMP')}
+        ${a.dist && a.timer ? tile('Allure', pace(a.timer / (a.dist / 1000)), '/km') : tile('FC moy.', a.avgHR ? Math.round(a.avgHR) : '–', 'bpm')}
+      </div>
+      <div class="card">
+        ${an2.gap && a.up > 20 ? kv('Allure corrigée de la pente', pace(1000 / an2.gap.v) + ' /km') : ''}
+        ${a.up != null ? kv('D+ / D−', `${Math.round(a.up)} / ${Math.round(a.down || 0)} m`) : ''}
+        ${a.avgHR ? kv('FC moyenne / max', `${Math.round(a.avgHR)} / ${Math.round(a.maxHR || 0)} bpm`) : ''}
+        ${a.trimp != null ? kv('Charge cardiaque', fx(a.trimp, 1) + ' TRIMP' + (a.trimpAvg ? ', estimée depuis la FC moyenne' : '')) : kv('Charge cardiaque', '<span class="faint">renseigne FC de repos et FC max</span>')}
+        ${a.kcal ? kv('Dépense annoncée par la montre', Math.round(a.kcal) + ' kcal') : ''}
+        ${kv('Source', srcLabel(a))}
+      </div>
+      ${bests.length ? sec('Meilleurs efforts de cette sortie') + `<div class="pr">${bests.map(dd => `<div class="prCard"><b>${fmtDur(an2.best[dd])}</b>
+        <div class="meta">${DIST_LABEL[dd] || Math.round(dd) + ' m'}</div><div class="meta">${pace(an2.best[dd] / (dd / 1000))} /km</div></div>`).join('')}</div>` : ''}
+      ${sp.length ? sec('Tours', an2.gap && a.up > 20 ? 'allure réelle et corrigée' : '') + `<div class="card"><table class="tbl">
+        <thead><tr><th>km</th><th>temps</th>${an2.gap && a.up > 20 ? '<th>corrigé</th>' : ''}<th>FC</th><th>D+</th><th class="bar"></th></tr></thead><tbody>
+        ${sp.map((x, i3) => `<tr><td>${x.partial ? fx(x.km - 1 + x.partial, 2) : x.km}</td><td><b>${fmtDur(x.s)}</b></td>
+          ${an2.gap && a.up > 20 ? `<td>${x.gap ? pace(1000 / x.gap) : '–'}</td>` : ''}
+          <td>${x.hr ? Math.round(x.hr) : '–'}</td><td>${x.up != null ? (x.up > 0 ? '+' : '') + Math.round(x.up) : '–'}</td>
+          <td class="bar"><i style="width:${barW(i3)}%;--c:${x.hr && S.profile.maxHR ? ZONE_COLOR[zoneOf(x.hr, S.profile.maxHR)] : 'var(--accent)'}"></i></td></tr>`).join('')}
+        </tbody></table>${an2.gap && a.up > 20 ? '<div class="note tight">L\'allure corrigée est celle que tu tiendrais sur le plat au même coût énergétique (Minetti et al., 2002).</div>' : ''}</div>` : ''}
+      ${hrc ? sec('Fréquence cardiaque') + `<div class="card">${hrc}
+        ${zt ? an2.zones.map((v, i2) => v > 0.5 ? `<div class="zrow" style="--c:${ZONE_COLOR[i2]}"><span class="zl">${ZONE_LABEL[i2]}</span>
+          <span class="zb"><i style="width:${v / zt * 100}%"></i></span><span class="zv">${fmtMin(v)}</span></div>` : '').join('') : ''}</div>` : ''}
+      ${smp.some(x => x[5] != null) ? sec('Parcours') + `<div class="card">${routeMap(smp)}</div>` : ''}
+      ${prof ? sec('Profil') + `<div class="card">${prof}</div>` : ''}
+      ${an2.dp ? sec('Réserve anaérobie') + `<div class="card">
+        ${chart({ h: 110, series: [{ pts: an2.dp.curve.map(x => [x[0] / 86400, x[1]]), color: an2.dp.exhausted ? 'var(--low)' : 'var(--mid)', fill: true }] }).replace(/<text[^>]*>[^<]*<\/text>/g, '')}
+        ${kv('Plus bas niveau atteint', Math.round(an2.dp.min) + ' m sur ' + Math.round(csCurrent().dp) + ' m')}
+        <div class="note tight">Modèle de Skiba : la réserve se vide au-dessus de la vitesse critique et se reconstitue en dessous. ${an2.dp.exhausted ? 'Elle est tombée à zéro : tu es allé au bout.' : ''}</div></div>` : ''}
+      ${dc && dc.pct != null ? sec('Dérive cardiaque') + `<div class="card">${kv('Découplage sur la sortie', fx(dc.pct, 1) + ' %')}
+        ${dc.reasons.map(r => `<div class="meta warnTx">${esc(r)}</div>`).join('')}
+        <div class="note tight">Comparaison de l'efficacité entre la première et la seconde moitié (Friel). Au-delà de 5 % sur une sortie régulière, l'allure était probablement trop rapide pour le jour.</div></div>` : ''}
+      ${sec('Séance prévue')}
+      <div class="card">${linked ? comparison(linked, a) + `<button class="btn full danger" data-a="unlink" data-id="${esc(a.id)}">Dissocier</button>`
+        : (ss.length ? `<div class="list">${ss.map(s2 => `<div class="li" data-a="link" data-id="${esc(a.id)}" data-key="${esc(s2.id)}"><span class="grow">${LABELS.slot[s2.slot]} — ${esc(s2.t.title)}</span>${(a.candidates || []).includes(s2.id) ? badge('probable', 'var(--mid)') : ''}</div>`).join('')}</div>`
+          : '<div class="meta">Aucune séance prévue ce jour-là.</div>') + `<button class="btn full" data-a="ignoreAct" data-id="${esc(a.id)}">Ne pas associer</button>`}</div>
+      ${sec('Ce que le fichier contenait')}
+      <div class="card"><div class="small">${(a.fields || []).join(', ') || '—'}</div>
+        <div class="note tight">Un champ absent n'est jamais estimé à la place de la montre.</div>
+        ${(a.warnings || []).map(w => `<div class="meta warnTx">${esc(w)}</div>`).join('')}</div>
       <button class="btn full danger" data-a="deleteAct" data-id="${esc(a.id)}">Supprimer l'activité</button>` };
   },
   refs() {
@@ -603,7 +483,7 @@ function tick() {
   const el = document.getElementById('woClock'); if (el) el.textContent = fmtDur((Date.now() - S.strength.find(s => s.id === w.sid).start) / 1000);
   if (w.rest) {
     const rem = w.rest.target - (Date.now() - w.rest.start) / 1000, r = document.getElementById('restClock'), bar = document.getElementById('restBar');
-    if (r) { r.textContent = rem >= 0 ? fmtDur(rem) : '+' + fmtDur(-rem); r.style.color = rem >= 0 ? '' : 'var(--warn)'; }
+    if (r) { r.textContent = rem >= 0 ? fmtDur(rem) : '+' + fmtDur(-rem); r.style.color = rem >= 0 ? '' : 'var(--mid)'; }
     if (bar) bar.style.width = Math.min(100, (1 - rem / w.rest.target) * 100) + '%';
     if (rem <= 0 && !w.rest.beeped) { w.rest.beeped = true; beep(); }
   }
@@ -612,52 +492,84 @@ function beep() { try { const c = new (window.AudioContext || window.webkitAudio
 function renderWorkout() {
   const el = document.getElementById('workout'), w = ui.wo;
   if (!w || w.summary) { el.className = ''; el.innerHTML = ''; return; }
-  el.className = 'on'; const lib = LIB(), st = w.steps[w.i], s = S.strength.find(x => x.id === w.sid);
+  el.className = 'on';
+  const lib = LIB(), st = w.steps[w.i];
   let body;
-  if (!st) body = `<div class="center"><div style="font-size:48px">🏁</div><h2>Séance terminée</h2><button class="btn pri" data-a="woSummary">Voir le bilan</button></div>`;
-  else if (w.rest) {
-    const nx = st;
-    body = `<div class="card restp"><div class="t2">Récupération</div><div id="restClock" class="huge">${fmtDur(w.rest.target)}</div><div class="pbar"><i id="restBar"></i></div>
-      <div class="tiny t3">Durée cible : ${Math.round(w.rest.target)} s (${esc(w.rest.src)})</div>
-      <div class="grid2"><button class="btn" data-a="restAdj" data-d="-15">−15 s</button><button class="btn" data-a="restAdj" data-d="15">+15 s</button></div>
-      <div class="tiny t3">Ensuite</div><div class="b">${esc(lib[nx.rx.id]?.name)} · série ${nx.n}/${nx.rx.sets}</div>
-      <button class="btn pri full bigbtn" data-a="restEnd">▶ Série suivante</button></div>`;
+  if (!st) {
+    body = `<div class="center"><div style="color:var(--good);display:flex;justify-content:center">${ic('check', 54, 1.6)}</div>
+      <h2 style="margin-top:14px">Séance terminée</h2><div class="lede">Toutes les séries sont validées.</div>
+      <button class="btn pri lg" style="margin-top:22px" data-a="woSummary">Voir le bilan</button></div>`;
+  } else if (w.rest) {
+    body = `<div class="rest">
+      <div class="meta">Récupération</div>
+      <div id="restClock" class="restNum">${fmtDur(w.rest.target)}</div>
+      <div class="pbar"><i id="restBar"></i></div>
+      <div class="meta">${Math.round(w.rest.target)} s — ${esc(w.rest.src)}</div>
+      <div class="pair" style="margin:18px 0"><button class="btn" data-a="restAdj" data-d="-15">−15 s</button><button class="btn" data-a="restAdj" data-d="15">+15 s</button></div>
+      <div class="card" style="text-align:left"><div class="meta">Ensuite</div><div class="metricName">${esc(lib[st.rx.id]?.name || st.rx.id)}</div>
+        <div class="meta">série ${st.n} sur ${st.rx.sets}</div></div>
+      <button class="btn pri lg" data-a="restEnd">${ic('play', 16)} Série suivante</button></div>`;
   } else {
     const e = lib[st.rx.id], timed = e?.timed || !!st.rx.durS, sg = suggestion(st, w.sid), prev = prevSets(st.rx.id, w.sid), best = bestE1rm(st.rx.id, w.sid);
-    const stp = (lab, val, a) => `<div class="stepper"><button data-a="${a}" data-d="-1">−</button><div><div class="sv">${val}</div><div class="tiny t3">${lab}</div></div><button data-a="${a}" data-d="1">＋</button></div>`;
-    body = `<div class="card"><div class="tiny t3 up">${esc(st.block)}</div><h2>${esc(e?.name || st.rx.id)}</h2>
-      <div class="srow">${badge(`Série ${st.n}/${st.rx.sets}`)}${st.rx.ss ? badge('Superset ' + st.rx.ss, 'var(--calm)') : ''}${st.rx.side ? badge('Par côté', 'var(--t2)') : ''}</div>
-      <div class="targets"><div><small>Objectif</small><b>${st.rx.reps ? (st.rx.reps[0] === st.rx.reps[1] ? st.rx.reps[0] : st.rx.reps.join('–')) + ' reps' : st.rx.durS ? st.rx.durS.join('–') + ' s' : '—'}</b></div>${st.rx.tempo ? `<div><small>Tempo</small><b>${esc(st.rx.tempo)}</b></div>` : ''}</div>
-      <div class="tiny acc">${e ? e.p.map(m => MUSCLES[m]).join(', ') : ''}</div>
-      ${e ? `<details ${w.cues ? 'open' : ''}><summary class="small">Consignes</summary>${e.cues.map(c => `<div class="small">✓ ${esc(c)}</div>`).join('')}${e.err.map(c => `<div class="small warn">✗ ${esc(c)}</div>`).join('')}<div class="tiny t3">${esc(e.src)}</div></details>` : ''}
-      ${st.rx.note ? `<div class="tiny t2">${esc(st.rx.note)}</div>` : ''}</div>
-      <div class="card">${sg ? `<div class="row tiny"><span class="t2">Suggestion : ${fx(sg.l, 2)} kg pour ${st.rx.reps[0]} reps à RIR ${S.profile.suggestRIR ?? 2} (e1RM ${fx(sg.b.value, 1)} kg). À valider.</span><button class="link b" data-a="applySug" data-v="${sg.l}">Appliquer</button></div>` : ''}
-        ${!timed || e?.cat === 'strength' ? stp(e?.bw ? 'Charge totale (corps + lest)' : 'Charge', fx(w.load, w.load % 1 ? 2 : 0) + ' kg', 'woLoad') : ''}
-        ${timed ? stp('Durée', w.secs + ' s', 'woSecs') : stp('Répétitions', w.reps, 'woReps')}
-        <div class="tiny t2">Répétitions en réserve (RIR)</div><div class="seg">${[0, 1, 2, 3, 4, 5].map(i => `<button class="${w.rir === i ? 'on' : ''}" data-a="woRir" data-v="${i}">${i === 5 ? '5+' : i}</button>`).join('')}</div>
-        <label class="small"><input type="checkbox" ${w.warm ? 'checked' : ''} data-a="woWarm"> Série d'échauffement</label></div>
-      <button class="btn pri full bigbtn" data-a="woValidate">✓ Valider la série</button>
-      <div class="row"><button class="link t2" data-a="woMove" data-d="-1" ${w.i === 0 ? 'disabled' : ''}>⏮ Précédente</button><button class="link t2" data-a="woMove" data-d="1">Passer ⏭</button></div>
-      <div class="card"><b class="small">Historique</b><div class="tiny t2">${prev.length ? 'Dernière séance : ' + prev.map(x => `${fx(x.load, x.load % 1 ? 1 : 0)}×${x.reps}${x.rir != null ? ' @' + x.rir : ''}`).join(' · ') : 'Pas encore de série pour cet exercice.'}</div>${best ? `<div class="tiny t3">e1RM récent : ${fx(best.value, 1)} kg (r+RIR = ${best.rEff}, fiabilité ${LABELS.conf[best.rel].toLowerCase()})</div>` : ''}</div>`;
+    const stp = (lab, val, a) => `<div class="stepper"><button data-a="${a}" data-d="-1" aria-label="Diminuer">−</button>
+      <div class="stepVal"><b>${val}</b><span>${esc(lab)}</span></div><button data-a="${a}" data-d="1" aria-label="Augmenter">+</button></div>`;
+    body = `<div class="meta">${esc(st.block)}</div>
+      <h2>${esc(e?.name || st.rx.id)}</h2>
+      <div class="wrap">${badge(`Série ${st.n} sur ${st.rx.sets}`)}${st.rx.ss ? badge('Superset ' + st.rx.ss, 'var(--deep)') : ''}${st.rx.side ? badge('Chaque côté', 'var(--faint)') : ''}</div>
+      ${e ? `<div class="mvRow" style="margin:10px 0"><div class="mvBox sm">${moveFor(e.id, e.cat)?.svg || ''}</div>
+        <div class="grow"><div class="meta">${esc(e.p.map(m => MUSCLES[m]).join(', '))}</div>
+        <button class="link" style="padding:2px 0" data-a="exercise" data-id="${e.id}">Voir le mouvement en détail</button></div></div>` : ''}
+      <div class="target">
+        <div><small>Objectif</small><b>${st.rx.reps ? (st.rx.reps[0] === st.rx.reps[1] ? st.rx.reps[0] : st.rx.reps.join('–')) + ' reps' : st.rx.durS ? st.rx.durS.join('–') + ' s' : '—'}</b></div>
+        ${st.rx.tempo ? `<div><small>Tempo</small><b style="font-size:15px;font-stretch:100%">${esc(st.rx.tempo)}</b></div>` : ''}
+      </div>
+      ${st.rx.note ? `<div class="note tight">${esc(st.rx.note)}</div>` : ''}
+      <div class="card">
+        ${sg ? `<div class="row"><div class="grow"><div class="small">${fx(sg.l, 2)} kg pour ${st.rx.reps[0]} reps</div>
+          <div class="meta">d'après ta force estimée (${fx(sg.b.value, 1)} kg) — à toi de valider</div></div>
+          <button class="btn sm" data-a="applySug" data-v="${sg.l}">Utiliser</button></div>` : ''}
+        ${!timed || e?.cat === 'strength' ? stp(e?.bw ? 'kg (corps + lest)' : 'kg', fx(w.load, w.load % 1 ? 2 : 0), 'woLoad') : ''}
+        ${timed ? stp('secondes', w.secs, 'woSecs') : stp('répétitions', w.reps, 'woReps')}
+        <div class="meta" style="margin-top:14px">Répétitions encore possibles (RIR)</div>
+        <div class="seg">${[0, 1, 2, 3, 4, 5].map(i => `<button class="${w.rir === i ? 'on' : ''}" data-a="woRir" data-v="${i}">${i === 5 ? '5+' : i}</button>`).join('')}</div>
+        <label class="switchRow"><span class="small">Série d'échauffement</span><input type="checkbox" ${w.warm ? 'checked' : ''} data-a="woWarm"></label>
+      </div>
+      <button class="btn pri lg" data-a="woValidate">${ic('check', 17, 2.2)} Valider la série</button>
+      <div class="row" style="margin-top:4px"><button class="link quiet" data-a="woMove" data-d="-1" ${w.i === 0 ? 'disabled' : ''}>Précédente</button>
+        <button class="link quiet" data-a="woMove" data-d="1">Passer</button></div>
+      ${e ? `<details><summary>Consignes et erreurs fréquentes</summary>
+        ${e.cues.map(c => `<div class="small" style="margin:5px 0">${esc(c)}</div>`).join('')}
+        ${e.err.map(c => `<div class="small warnTx" style="margin:5px 0">${esc(c)}</div>`).join('')}
+        <div class="meta">${esc(e.src)}</div></details>` : ''}
+      <div class="card quiet"><div class="meta">${prev.length ? 'Dernière fois' : 'Première fois sur cet exercice'}</div>
+        ${prev.length ? `<div class="small">${prev.map(x => `${fx(x.load, x.load % 1 ? 1 : 0)} × ${x.reps}${x.rir != null ? ' @' + x.rir : ''}`).join('   ')}</div>` : ''}
+        ${best ? `<div class="meta">force estimée ${fx(best.value, 1)} kg — fiabilité ${LABELS.conf[best.rel].toLowerCase()}</div>` : ''}</div>`;
   }
-  el.innerHTML = `<div class="sheet"><div class="mhead"><button class="link" data-a="woQuit">Quitter</button><b>${esc(w.t.title)}</b><button class="link b" data-a="woSummary">Terminer</button></div>
-    <div class="mbody"><div class="row tiny t2"><span>Série ${Math.min(w.i + 1, w.steps.length)} / ${w.steps.length}</span><span id="woClock">0:00</span></div><div class="pbar"><i style="width:${w.i / Math.max(1, w.steps.length) * 100}%"></i></div>${body}</div></div>`;
+  el.innerHTML = `<div class="sheetBox">
+    <div class="sheetHead"><button class="link quiet" data-a="woQuit">Quitter</button><b>${esc(w.t.title)}</b><button class="link" data-a="woSummary">Terminer</button></div>
+    <div class="woTop"><div class="row"><span class="meta">Série ${Math.min(w.i + 1, w.steps.length)} sur ${w.steps.length}</span><span class="meta num" id="woClock">0:00</span></div>
+      <div class="woProg">${w.steps.map((_, i) => `<i class="${i < w.i ? 'done' : ''}"></i>`).join('')}</div></div>
+    <div class="sheetBody">${body}</div></div>`;
   tick();
 }
-
 // ===================== Démo =====================
 function gauss() { return Math.sqrt(-2 * Math.log(Math.random() + 1e-12)) * Math.cos(2 * Math.PI * Math.random()); }
 function accountCard() {
-  if (Cloud.mode !== 'cloud') return `<div class="card small t2">${CFG.supabaseUrl ? 'Non connecté.' : 'Mode local : config.js ne contient pas encore l\'adresse Supabase (voir README).'}</div>`;
-  return `<div class="card"><div class="row"><div><div class="small b">${esc(Cloud.user.email)}</div><div class="tiny t2"><span class="dot" data-st="${Cloud.state}"></span> ${esc(Cloud.msg || CLOUD_LABEL[Cloud.state])}</div></div><button class="btn sm" data-a="syncNow">⟳</button></div>
-    <div class="row"><button class="link tiny" data-a="logout">Se déconnecter</button><button class="link tiny danger" data-a="logoutWipe">Déconnecter et effacer cet appareil</button></div></div>`;
+  if (typeof Cloud === 'undefined' || Cloud.mode !== 'cloud')
+    return `<div class="card"><div class="metricName">Mode local</div><div class="meta">${CFG.supabaseUrl ? 'Tu n\'es pas connecté.' : 'config.js ne contient pas encore l\'adresse Supabase : les données restent sur cet appareil.'}</div></div>`;
+  return `<div class="card">
+    <div class="row"><div class="grow"><div class="metricName">${esc(Cloud.user.email)}</div>
+      <div class="meta"><span class="dot" data-st="${Cloud.state}"></span> ${esc(Cloud.msg || CLOUD_LABEL[Cloud.state])}</div></div>
+      <button class="iconBtn" data-a="syncNow" aria-label="Synchroniser">${ic('sync', 19)}</button></div>
+    <div class="row" style="margin-top:6px"><button class="link quiet" data-a="logout">Se déconnecter</button>
+      <button class="link quiet danger" data-a="logoutWipe">Effacer cet appareil</button></div></div>`;
 }
 function clearDemo() {
   if (!confirm('Effacer toutes les données de démo (activités, séances de muscu, mesures et ressentis fictifs) ? Tes vraies données sont conservées.')) return;
   S.activities = S.activities.filter(a => a.source !== 'demo'); S.strength = S.strength.filter(x => !x.demo);
   for (const d in S.wellness) if (S.wellness[d].demo) delete S.wellness[d];
   for (const k in S.sessions) if (S.sessions[k].demo) delete S.sessions[k];
-  for (const d in S.metrics) { const m = S.metrics[d]; if (m.hrvProv === 'demo') { delete m.hrv; delete m.hrvProv; } if (m.rhrProv === 'demo') { delete m.rhr; delete m.rhrProv; } if (m.sleepProv === 'demo') { ['sleepMin', 'inBedMin', 'deepMin', 'remMin', 'sleepProv'].forEach(k => delete m[k]); } if (m.weightProv === 'demo') { delete m.weight; delete m.weightProv; } if (m.intakeDemo) { delete m.intake; delete m.intakeDemo; } if (!Object.keys(m).length) delete S.metrics[d]; }
+  for (const d in S.metrics) { const m = S.metrics[d]; if (m.hrvProv === 'demo') { delete m.hrv; delete m.hrvProv; } if (m.rhrProv === 'demo') { delete m.rhr; delete m.rhrProv; } if (m.sleepProv === 'demo') { ['sleepMin', 'inBedMin', 'deepMin', 'remMin', 'lightMin', 'sleepStart', 'steps', 'sleepProv'].forEach(k => delete m[k]); } if (m.weightProv === 'demo') { delete m.weight; delete m.weightProv; } if (m.intakeDemo) { delete m.intake; delete m.intakeDemo; } if (!Object.keys(m).length) delete S.metrics[d]; }
   if (S.demoNote) { const P = S.profile; if (P.restingHR === 48) P.restingHR = null; if (P.maxHR === 192) P.maxHR = null; if (P.massKg === 71) P.massKg = null; if (P.heightCm === 178) P.heightCm = null; delete S.demoNote; }
   S.perfs = (S.perfs || []).filter(p => !p.demo);
   save(); render(); toast('Données de démo effacées');
@@ -674,7 +586,10 @@ function demo() {
     const late = D.diff(d, day) < 4; // légère baisse de VFC sur les derniers jours pour illustrer les observations
     S.metrics[d] = Object.assign(S.metrics[d] || {}, { hrv: Math.round(64 + 6 * gauss() - (late ? 9 : 0)), hrvMethod: 'rmssd', hrvProv: 'demo', rhr: Math.round(48 + 1.6 * gauss() + (late ? 2 : 0)), rhrProv: 'demo',
       sleepMin: Math.round((7.3 + 0.55 * gauss() - (late ? 0.6 : 0)) * 60), sleepProv: 'demo', weight: +(71.4 - 0.6 * prog + 0.3 * gauss()).toFixed(1), weightProv: 'demo', intake: Math.round(2750 + 250 * gauss()), intakeDemo: true });
-    const m = S.metrics[d]; m.inBedMin = m.sleepMin + 20; m.deepMin = Math.round(m.sleepMin * (0.16 + 0.03 * gauss())); m.remMin = Math.round(m.sleepMin * (0.22 + 0.03 * gauss()));
+    const m = S.metrics[d]; m.inBedMin = m.sleepMin + Math.round(12 + Math.abs(18 * gauss()));
+    m.deepMin = Math.round(m.sleepMin * (0.16 + 0.03 * gauss())); m.remMin = Math.round(m.sleepMin * (0.22 + 0.03 * gauss()));
+    m.lightMin = Math.max(0, m.sleepMin - m.deepMin - m.remMin);
+    m.sleepStart = Math.round(1382 + 26 * gauss()); m.steps = Math.round(9500 + 2600 * gauss());
     if (Math.random() < 0.85 && d !== day) S.wellness[d] = { demo: true, fatigue: Math.max(1, Math.min(7, Math.round(3 + gauss()))), soreness: Math.max(1, Math.min(7, Math.round(3 + gauss()))), stress: Math.max(1, Math.min(7, Math.round(3 + gauss()))), motivation: Math.max(1, Math.min(7, Math.round(5 + gauss()))), sleepQuality: Math.max(1, Math.min(7, Math.round(5 + gauss()))), pain: 0 };
     if (d >= day) continue;
     let sessions = Plan.sessions(d);
@@ -699,17 +614,27 @@ function demo() {
         const sport = t.kind === 'trailRun' ? 'trailRunning' : t.kind === 'track' ? 'trackRunning' : t.kind === 'bike' ? 'indoorCycling' : t.kind === 'walk' ? 'walking' : t.kind === 'crossTraining' ? 'hiking' : 'running';
         const hard = isHard(t.intensity) || t.intensity === 'mixed', trail = t.kind === 'trailRun';
         const samples = []; let dist = 0, alt = 300, up = 0, down = 0;
+        const CTR = trail ? [45.1885, 5.7245] : [45.8992, 6.1294];     // Grenoble pour le trail, Annecy pour la route
+        const seedAng = Math.random() * 6.28;
         for (let sec = 0; sec <= minutes * 60; sec += 10) {
           const ph = sec / 60, inWork = hard && ph > 20 && ph < minutes - 12 && Math.floor(ph / 5) % 2 === 0;
           const hrBase = sport === 'indoorCycling' ? 118 : sport === 'walking' || sport === 'hiking' ? 105 : 138 + (prog * -2);
           const hr = Math.round(Math.min(188, hrBase + (inWork ? 28 : 0) + Math.min(10, ph / 6) * (trail ? 1.2 : 0.6) + 2 * gauss()));
           const v = sport === 'indoorCycling' ? 0 : sport === 'walking' || sport === 'hiking' ? 1.4 : (trail ? 2.6 : 3.15) + (inWork ? 0.9 : 0) + 0.1 * gauss();
           if (sec) { dist += v * 10; const na = 300 + (trail ? 260 * Math.sin(ph / 22) + 80 * Math.sin(ph / 7) : 15 * Math.sin(ph / 9)); const dd = na - alt; if (dd > 0) up += dd; else down -= dd; alt = na; }
-          samples.push([sec, hr, sport === 'indoorCycling' ? null : +v.toFixed(2), Math.round(dist), sport === 'indoorCycling' ? null : +alt.toFixed(1)]);
+          let la = null, lo = null;
+          if (sport !== 'indoorCycling' && minutes > 0) {
+            const th = 2 * Math.PI * (dist / Math.max(1, v * minutes * 60)) + seedAng;
+            const rad = 420 + 170 * Math.sin(3 * th + seedAng) + (trail ? 260 : 60);
+            const dx = rad * Math.cos(th), dy = rad * Math.sin(th);
+            la = +(CTR[0] + dy / 111320).toFixed(5); lo = +(CTR[1] + dx / (111320 * Math.cos(CTR[0] * Math.PI / 180))).toFixed(5);
+          }
+          samples.push([sec, hr, sport === 'indoorCycling' ? null : +v.toFixed(2), Math.round(dist), sport === 'indoorCycling' ? null : +alt.toFixed(1), la, lo, sport === 'indoorCycling' ? null : Math.round(84 + 4 * gauss())]);
         }
         const hrs = samples.map(x => x[1]), startMs = D.at(d, hour, 10 + Math.floor(Math.random() * 30));
         const a = { id: 'demo:' + uid(), source: 'demo', sport, start: startMs, elapsed: minutes * 60, timer: minutes * 60, dist: sport === 'indoorCycling' ? null : dist, up: sport === 'indoorCycling' ? null : Math.round(up), down: sport === 'indoorCycling' ? null : Math.round(down),
-          avgHR: St.mean(hrs), maxHR: Math.max(...hrs), samples, fields: sport === 'indoorCycling' ? ['FC'] : ['FC', 'Vitesse', 'Altitude', 'GPS', 'Cadence'], warnings: [] };
+          avgHR: St.mean(hrs), maxHR: Math.max(...hrs), kcal: Math.round(minutes * 11), samples,
+          fields: sport === 'indoorCycling' ? ['FC'] : ['FC', 'Vitesse', 'Altitude', 'GPS', 'Cadence'], warnings: [] };
         computeTrimp(a); S.activities.push(a);
         if (!s.id.startsWith('free')) { a.linked = s.id; a.linkState = 'auto'; if (t.toLog) S.sessions[s.id] = Object.assign(S.sessions[s.id] || {}, { rpe: 7, durationMin: Math.round(minutes), note: '10 × 400 m, récup. 1 min (démo)' }); }
       }
@@ -750,7 +675,6 @@ async function importFiles(files) {
 
 // ===================== Actions =====================
 function formVals(root) { const o = {}; root.querySelectorAll('[name]').forEach(el => { if (el.type === 'checkbox') { if (el.name === 'p') { (o.p = o.p || []); if (el.checked) o.p.push(el.value); } else o[el.name] = el.checked; } else o[el.name] = el.value; }); return o; }
-const modalRoot = () => document.getElementById('modal');
 const A = {
   pop, demo, clearDemo,
   syncNow() { Cloud.dirty ? Cloud.push() : Cloud.pull(); },

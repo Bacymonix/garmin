@@ -48,7 +48,10 @@ function where(params, vals) {
 }
 async function rest(req, res, url, body) {
   const table = url.pathname.split('/')[3], T = 'public.' + ident(table), p = url.searchParams;
-  const tok = (req.headers.authorization || '').replace(/^Bearer /, ''), cl = claimsOf(tok) || claimsOf(req.headers.apikey || '');
+  const key = req.headers.apikey || '';
+  if (key.startsWith('sb_secret_') && req.headers.authorization) return send(res, 401, { message: 'Invalid JWT: ne pas envoyer une clé sb_secret_ en Authorization' });
+  const tok = (req.headers.authorization || '').replace(/^Bearer /, '');
+  const cl = key.startsWith('sb_secret_') ? { role: 'service_role' } : (claimsOf(tok) || claimsOf(key));
   if (!cl) return send(res, 401, { message: 'JWT invalide' });
   const prefer = req.headers.prefer || '', ret = prefer.includes('return=representation'), vals = [];
   let sql;
@@ -116,8 +119,8 @@ function garmin(req, res, url) {
   if (p.startsWith('/personalapitoken-service')) { const k = auth.replace('ApiKey ', ''); if (!GARMIN.keys.has(k)) return send(res, 401, { message: 'invalid' }); return send(res, 200, jwt({ exp: Math.floor(Date.now() / 1000) + 86400 }), 'text/plain'); }
   if (!auth.startsWith('Bearer ')) return send(res, 401, {});
   if (p.startsWith('/hrv-service/hrv/daily/')) { const [a, b] = p.split('/').slice(-2); return send(res, 200, { hrvSummaries: days(a, b).map(d => ({ calendarDate: d, weeklyAvg: 60, lastNightAvg: r(52, 72), status: 'BALANCED' })) }); }
-  if (p === '/sleep-service/sleep/dailySleep') return send(res, 200, { dailySleepDTO: { calendarDate: q.date, sleepTimeSeconds: r(23000, 29000), deepSleepSeconds: 4500, remSleepSeconds: 6000, lightSleepSeconds: 14000, awakeSleepSeconds: 900, sleepScores: { overall: { value: 78 } } }, restingHeartRate: r(45, 51), avgOvernightHrv: 61 });
-  if (p === '/usersummary-service/v2/dailysummaries') return send(res, 200, { data: days(q.startDate, q.endDate).map(d => ({ calendarDate: d, movement: { steps: 9000 }, heartRate: { restingValue: r(45, 51) } })) });
+  if (p === '/sleep-service/sleep/dailySleep') return send(res, 200, { dailySleepDTO: { calendarDate: q.date, sleepTimeSeconds: r(23000, 29000), deepSleepSeconds: 4500, remSleepSeconds: 6000, lightSleepSeconds: 14000, awakeSleepSeconds: 900, sleepScores: { overall: { value: 78 } }, sleepStartTimestampLocal: Date.parse(q.date + 'T22:4' + (r(0, 9)) + ':00Z') }, restingHeartRate: r(45, 51), avgOvernightHrv: 61 });
+  if (p === '/usersummary-service/v2/dailysummaries') return send(res, 200, { data: days(q.startDate, q.endDate).map(d => ({ calendarDate: d, movement: { steps: 9000 }, totalSteps: r(7000, 14000), averageStressLevel: r(18, 42), bodyBatteryMostRecentValue: r(35, 80), totalKilocalories: r(2400, 3200), heartRate: { restingValue: r(45, 51) } })) });
   if (p.startsWith('/weight-service/weight/range/')) { const b = p.split('/').pop(); return send(res, 200, { dailyWeightSummaries: [{ summaryDate: b, latestWeight: { weight: 70800 } }] }); }
   if (p === '/userprofile-service/userprofile/settings') return send(res, 200, { userData: { weight: 70800, height: 178, birthDate: '2004-03-02', gender: 'MALE', vo2MaxRunning: 57 } });
   if (p === '/biometric-service/heartRateZones/v2') return send(res, 200, [{ sport: 'DEFAULT', maxHeartRateUsed: 193, restingHeartRateUsed: 47 }]);
@@ -155,7 +158,7 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/auth/v1/logout') return send(res, 204, null);
     if (url.pathname.startsWith('/rest/v1/')) return await rest(req, res, url, body);
     // fichiers statiques de l'app ; config.js de test
-    if (url.pathname === '/config.js') return send(res, 200, `window.COCKPIT_CONFIG={supabaseUrl:'http://127.0.0.1:${PORT}',supabaseAnonKey:'${jwt({ role: 'anon', iss: 'test' })}',githubRepo:'Bacymonix/cockpit',workflow:'garmin-sync.yml'};`, 'text/javascript');
+    if (url.pathname === '/config.js') return send(res, 200, `window.COCKPIT_CONFIG={supabaseUrl:'http://127.0.0.1:${PORT}',supabaseAnonKey:'${jwt({ role: 'anon', iss: 'test' })}',githubRepo:'Bacymonix/garmin',workflow:'garmin-sync.yml'};`, 'text/javascript');
     const f = ROOT + (url.pathname === '/' ? 'index.html' : url.pathname.slice(1));
     if (existsSync(f)) { res.writeHead(200, { 'Content-Type': MIME[f.split('.').pop()] || 'application/octet-stream' }); return res.end(readFileSync(f)); }
     send(res, 404, { message: 'introuvable ' + url.pathname });

@@ -151,8 +151,9 @@ function csFit(points) {
   const warn = []; const out = u.filter(p => p.t < 120 || p.t > 900).length;
   if (out) warn.push(`${out} effort(s) hors de 2–15 min : CS probablement biaisée`);
   if (f.intercept < 0) warn.push('D′ négatif : données incohérentes');
+  else if (f.intercept < 50 || f.intercept > 500) warn.push(`D′ de ${Math.round(f.intercept)} m, hors des valeurs habituelles (environ 100 à 300 m) : tes efforts n'étaient probablement pas tous maximaux`);
   if (u.length === 2) warn.push('Deux points : aucune estimation d\'erreur');
-  let conf = u.length === 2 ? 'low' : u.length === 3 ? 'moderate' : 'high'; if (out || f.intercept < 0) conf = 'low';
+  let conf = u.length === 2 ? 'low' : u.length === 3 ? 'moderate' : 'high'; if (out || f.intercept < 50 || f.intercept > 500) conf = 'low';
   return { cs: f.slope, dp: f.intercept, r2: f.r2, res: f.res, se: f.seB, n: u.length, tmin: Math.min(...u.map(p => p.t)), tmax: Math.max(...u.map(p => p.t)), warn, conf };
 }
 const minettiCost = i => (i < -0.45 || i > 0.45) ? null : 155.4 * i ** 5 - 30.4 * i ** 4 - 43.3 * i ** 3 + 46.3 * i * i + 19.5 * i + 3.6;
@@ -495,7 +496,9 @@ const FIT = {
     for (const r of recs) {
       const f = r.f, spd = f[73] != null ? f[73] / 1000 : f[6] != null ? f[6] / 1000 : null;
       const alt = f[78] != null ? f[78] / 5 - 500 : f[2] != null ? f[2] / 5 - 500 : null;
-      samples.push([f[253] - t0, f[3] ?? null, spd, f[5] != null ? f[5] / 100 : null, alt]);
+      const SEMI = 180 / 2147483648;
+      samples.push([f[253] - t0, f[3] ?? null, spd, f[5] != null ? f[5] / 100 : null, alt,
+        f[0] != null ? +(f[0] * SEMI).toFixed(5) : null, f[1] != null ? +(f[1] * SEMI).toFixed(5) : null, f[4] ?? null]);
       if (f[3] != null) fields.add('FC'); if (spd != null) fields.add('Vitesse'); if (alt != null) fields.add('Altitude');
       if (f[0] != null) fields.add('GPS'); if (f[4] != null) fields.add('Cadence'); if (f[7] != null) fields.add('Puissance');
       if (f[39] != null) fields.add('Oscillation verticale'); if (f[41] != null) fields.add('Temps de contact');

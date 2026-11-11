@@ -401,6 +401,13 @@ const LABELS = {
 const PROVISIONAL = new Set(['conditional', 'toConfirm', 'intended']);
 
 const REFERENCES = [
+  ['Cooper KH', 1968, 'A means of assessing maximal oxygen intake', 'JAMA 203(3):201–204', 'PMID 5694044', true, 'VO2max estimée à partir de la distance couverte en 12 minutes'],
+  ['Léger L, Mercier D', 1984, 'Gross energy cost of horizontal treadmill and track running', 'Sports Medicine 1(4):270–277', 'PMID 6390604', true, 'VO2max ≈ 3,5 × vitesse maximale aérobie'],
+  ['Uth N, Sørensen H, Overgaard K, Pedersen PK', 2004, 'Estimation of VO2max from the ratio between HRmax and HRrest', 'Eur J Appl Physiol 91(1):111–115', 'PMID 14624296', true, 'VO2max ≈ 15,3 × FCmax / FCrepos, erreur type 2,7 ml/kg/min'],
+  ['American College of Sports Medicine', 2021, 'ACSM\'s Guidelines for Exercise Testing and Prescription', '11e édition, Wolters Kluwer', '', false, 'Équation métabolique de la course à pied'],
+  ['Minetti AE et al.', 2002, 'Energy cost of walking and running at extreme uphill and downhill slopes', 'J Appl Physiol 93(3):1039–1046', 'PMID 12183501', true, 'Coût énergétique selon la pente, allure corrigée'],
+  ['Skiba PF et al.', 2012, 'Modeling the expenditure and reconstitution of work capacity above critical power', 'Med Sci Sports Exerc 44(8):1526–1532', 'PMID 22382171', true, 'Réserve anaérobie au fil de l\'effort'],
+  ['Seiler S', 2010, 'What is best practice for training intensity and duration distribution?', 'Int J Sports Physiol Perform 5(3):276–291', 'PMID 20861519', true, 'Répartition de l\'intensité en trois domaines'],
   ['Morton RH, Fitz-Clarke JR, Banister EW', 1990, 'Modeling human performance in running', 'J Appl Physiol 69(3):1171–1177', 'PMID 2246166', true, 'Coefficients du TRIMP et constantes de temps'],
   ['Banister EW', 1991, 'Modeling elite athletic performance', 'Physiological Testing of the High-Performance Athlete, Human Kinetics', '', false, 'Modèle impulsion-réponse, TRIMP'],
   ['Foster C et al.', 2001, 'A new approach to monitoring exercise training', 'J Strength Cond Res 15(1):109–115', '', false, 'sRPE = RPE × durée'],

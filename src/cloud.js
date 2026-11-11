@@ -202,18 +202,44 @@ function merge3(base, remote, local) {
 }
 
 // ===================== Écran de connexion =====================
+function urlWarning() {
+  const u = CFG.supabaseUrl || '';
+  if (/\/(rest|auth)\/v\d/.test(u)) return `L'adresse dans config.js contient « ${u.replace(/^https?:\/\/[^/]+/, '')} » : elle doit s'arrêter à .supabase.co`;
+  if (u && !/^https?:\/\//.test(u)) return 'L\'adresse dans config.js doit commencer par https://';
+  if (/^sb_secret_|service_role/.test(CFG.supabaseAnonKey || '')) return 'config.js contient la clé service_role : utilise la clé anon (publishable).';
+  return null;
+}
 function showLogin(err) {
   const el = document.getElementById('login'); el.className = 'on';
-  el.innerHTML = `<div class="loginbox"><div class="logo">◎</div><h1>Cockpit</h1><div class="t2 small">Entraînement, récupération, musculation</div>
-    <form id="loginForm"><div class="field"><label>E-mail</label><input type="email" name="email" autocomplete="username" required></div>
-    <div class="field"><label>Mot de passe</label><input type="password" name="password" autocomplete="current-password" required></div>
-    <button class="btn pri full" type="submit">Se connecter</button>${err ? `<div class="small danger">${esc(err)}</div>` : ''}</form>
-    <div class="tiny t3">Le compte se crée dans Supabase (Authentication › Users › Add user). Voir le README du dépôt.</div></div>`;
+  const warn = urlWarning();
+  el.innerHTML = `<div class="loginBox">
+    <svg class="mark" viewBox="0 0 48 48" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round">
+      <path d="M8 34a18 18 0 1 1 32 0"/><path d="M24 26l9-9" stroke="var(--mid)"/></svg>
+    <h1>Cockpit</h1><div class="lede">Entraînement, récupération, musculation</div>
+    <form id="loginForm">
+      <div class="field"><label>E-mail</label><input type="email" name="email" autocomplete="username" required></div>
+      <div class="field"><label>Mot de passe</label><input type="password" name="password" autocomplete="current-password" required></div>
+      <button class="btn pri lg" type="submit">Se connecter</button>
+      ${err ? `<div class="small danger" style="margin-top:12px">${esc(err)}</div>` : ''}
+      ${warn ? `<div class="small warnTx" style="margin-top:12px">${esc(warn)}</div>` : ''}
+    </form>
+    <div class="meta" style="margin-top:18px">Un seul compte, créé dans Supabase. Les étapes sont dans le README du dépôt.</div></div>`;
   document.getElementById('loginForm').addEventListener('submit', async ev => {
     ev.preventDefault();
     const f = new FormData(ev.target), btn = ev.target.querySelector('button'); btn.disabled = true; btn.textContent = 'Connexion…';
-    const { data, error } = await Cloud.sb.auth.signInWithPassword({ email: f.get('email').trim(), password: f.get('password') });
-    if (error) return showLogin(/invalid/i.test(error.message) ? 'E-mail ou mot de passe incorrect.' : error.message);
+    let data, error;
+    try { ({ data, error } = await Cloud.sb.auth.signInWithPassword({ email: f.get('email').trim(), password: f.get('password') })); }
+    catch (e) { error = e; }
+    if (error) {
+      const code = error.code || '', st = error.status;
+      if (code === 'invalid_credentials' || (st === 400 && /invalid login/i.test(error.message || ''))) return showLogin('E-mail ou mot de passe incorrect.');
+      if (code === 'email_not_confirmed') return showLogin('Cet e-mail n\'est pas confirmé : dans Supabase, Authentication › Users, coche « Auto Confirm User ».');
+      if (st === 404) return showLogin(`Serveur d'authentification introuvable (404). Vérifie « supabaseUrl » dans config.js : l'adresse doit s'arrêter à .supabase.co, sans /rest/v1. Adresse utilisée : ${CFG.supabaseUrl}`);
+      if (st === 401 || code === 'invalid_api_key' || /api key/i.test(error.message || '')) return showLogin('Clé Supabase refusée : vérifie « supabaseAnonKey » dans config.js (clé anon ou publishable, pas la clé service_role).');
+      if (st === 429 || code === 'over_request_rate_limit') return showLogin('Trop de tentatives : réessaie dans quelques minutes.');
+      if (!st) return showLogin(`Serveur Supabase injoignable (${error.message || 'pas de réponse'}). Vérifie ta connexion et « supabaseUrl » dans config.js : ${CFG.supabaseUrl}`);
+      return showLogin(`Erreur ${st} : ${error.message}`);
+    }
     await Cloud.boot(data.user);
   });
 }
